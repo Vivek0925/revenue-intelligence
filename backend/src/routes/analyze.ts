@@ -73,7 +73,6 @@ router.post("/", async (_req, res) => {
     if (failedPayments.length === 0) {
       return res.status(200).json({
         success: true,
-
         message: "No payment failures detected",
 
         analysis: {
@@ -132,19 +131,14 @@ router.post("/", async (_req, res) => {
     if (failureRate < FAILURE_THRESHOLD) {
       return res.status(200).json({
         success: true,
-
         message:
           "Payments analyzed successfully. No major incident detected.",
 
         analysis: {
           totalPayments,
-
           failedPayments: failedPayments.length,
-
           failureRate: Number(failureRate.toFixed(2)),
-
           revenueAtRisk,
-
           dominantFailureReason,
         },
       });
@@ -161,7 +155,7 @@ router.post("/", async (_req, res) => {
       severity = "CRITICAL";
     } else if (failureRate >= 25) {
       severity = "HIGH";
-    } else if (failureRate >= 10) {
+    } else {
       severity = "MEDIUM";
     }
 
@@ -183,16 +177,18 @@ router.post("/", async (_req, res) => {
           ],
         },
       },
+
+      orderBy: {
+        createdAt: "desc",
+      },
     });
 
     let incident = existingIncident;
 
-    let decision: RecoveryDecision | null = null;
-
-    let recoveryAction = null;
+    let isNewIncident = false;
 
     // ==========================================
-    // 11. CREATE NEW INCIDENT
+    // 11. CREATE INCIDENT IF IT DOESN'T EXIST
     // ==========================================
 
     if (!incident) {
@@ -218,11 +214,16 @@ router.post("/", async (_req, res) => {
         },
       });
 
-      // ==========================================
-      // 12. AI DECISION ENGINE
-      // ==========================================
+      isNewIncident = true;
+    }
 
-      decision = decideRecoveryAction({
+    // ==========================================
+    // 12. AI DECISION ENGINE
+    // RUN FOR BOTH NEW AND EXISTING INCIDENTS
+    // ==========================================
+
+    const decision: RecoveryDecision =
+      decideRecoveryAction({
         type: incident.type,
 
         severity: incident.severity,
@@ -234,47 +235,64 @@ router.post("/", async (_req, res) => {
         rootCause: incident.rootCause ?? "UNKNOWN",
       });
 
-      // ==========================================
-      // 13. AUTOMATION CHECK
-      // ==========================================
+    // ==========================================
+    // 13. AUTOMATION CHECK
+    // ==========================================
 
-      const shouldAutomate =
-        !decision.boundaries.requiresHumanApproval;
+    const shouldAutomate =
+      !decision.boundaries.requiresHumanApproval;
 
-      // ==========================================
-      // 14. MAP AI ACTION → DATABASE ACTION
-      // ==========================================
+    // ==========================================
+    // 14. MAP AI ACTION → DATABASE ACTION
+    // ==========================================
 
-      const mappedAction =
-        recoveryActionTypeMap[decision.action];
+    const mappedAction =
+      recoveryActionTypeMap[decision.action];
 
-      // ==========================================
-      // 15. CREATE RECOVERY ACTION
-      // ==========================================
+    // ==========================================
+    // 15. CHECK FOR EXISTING RECOVERY ACTION
+    // ==========================================
 
-      if (mappedAction) {
-        recoveryAction =
-          await prisma.recoveryAction.create({
-            data: {
-              type: mappedAction,
+    let recoveryAction =
+      await prisma.recoveryAction.findFirst({
+        where: {
+          incidentId: incident.id,
+        },
 
-              status: "PENDING",
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
 
-              reason: decision.reason,
+    // ==========================================
+    // 16. CREATE RECOVERY ACTION IF NEEDED
+    // ==========================================
 
-              expectedRecovery: shouldAutomate
-                ? revenueAtRisk
-                : 0,
+    if (!recoveryAction && mappedAction) {
+      recoveryAction =
+        await prisma.recoveryAction.create({
+          data: {
+            type: mappedAction,
 
-              incidentId: incident.id,
-            },
-          });
-      }
+            status: "PENDING",
 
-      // ==========================================
-      // 16. CREATE AUDIT LOG
-      // ==========================================
+            reason: decision.reason,
 
+            expectedRecovery: shouldAutomate
+              ? revenueAtRisk
+              : 0,
+
+            incidentId: incident.id,
+          },
+        });
+    }
+
+    // ==========================================
+    // 17. CREATE AUDIT LOG
+    // ONLY FOR NEW INCIDENTS
+    // ==========================================
+
+    if (isNewIncident) {
       await prisma.auditLog.create({
         data: {
           eventType: "INCIDENT_DETECTED",
@@ -321,7 +339,7 @@ router.post("/", async (_req, res) => {
     }
 
     // ==========================================
-    // 17. RETURN RESULT
+    // 18. RETURN RESULT
     // ==========================================
 
     return res.status(200).json({
