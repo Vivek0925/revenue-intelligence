@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
+import prisma from "./lib/prisma";
+
 dotenv.config();
 
 const app = express();
@@ -9,20 +11,32 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Revenue Intelligence API is healthy 🚀",
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// Root route
 app.get("/", (req, res) => {
   res.json({
     message: "Revenue Intelligence API is running 🚀",
   });
+});
+
+// Database health check
+app.get("/api/health", async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+
+    res.status(200).json({
+      success: true,
+      message: "Revenue Intelligence API is healthy 🚀",
+      database: "connected",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Database connection failed:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "API is running but database connection failed",
+      database: "disconnected",
+    });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
