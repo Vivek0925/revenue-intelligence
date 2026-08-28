@@ -2,22 +2,33 @@ import { Router } from "express";
 
 import prisma from "../lib/prisma";
 
-import { decideRecoveryAction } from "../services/decision.service";
+import {
+  decideRecoveryAction,
+  type AIRecoveryAction,
+  type RecoveryDecision,
+} from "../services/decision.service";
 
 import { RecoveryActionType } from "../generated/prisma/client";
 
 const router = Router();
 
-/**
- * Maps AI decision actions to valid Prisma RecoveryActionType values.
- */
-const recoveryActionTypeMap = {
+// ==========================================
+// MAP AI ACTIONS → PRISMA DATABASE ACTIONS
+// ==========================================
+
+const recoveryActionTypeMap: Partial<
+  Record<AIRecoveryAction, RecoveryActionType>
+> = {
   RETRY_PAYMENT: RecoveryActionType.RETRY_PAYMENT,
 
   WAIT_AND_RETRY: RecoveryActionType.RETRY_PAYMENT,
 
   ESCALATE_TO_HUMAN: RecoveryActionType.REQUEST_APPROVAL,
-} as const;
+};
+
+// ==========================================
+// ANALYZE PAYMENTS
+// ==========================================
 
 router.post("/", async (_req, res) => {
   try {
@@ -51,7 +62,9 @@ router.post("/", async (_req, res) => {
     // ==========================================
 
     const failureRate =
-      totalPayments > 0 ? (failedPayments.length / totalPayments) * 100 : 0;
+      totalPayments > 0
+        ? (failedPayments.length / totalPayments) * 100
+        : 0;
 
     // ==========================================
     // 5. NO FAILURES
@@ -65,24 +78,23 @@ router.post("/", async (_req, res) => {
 
         analysis: {
           totalPayments,
-
           failedPayments: 0,
-
           failureRate: 0,
-
           revenueAtRisk: 0,
-
           dominantFailureReason: null,
         },
       });
     }
+
+    // ==========================================
+    // 6. GET MERCHANT
+    // ==========================================
 
     const firstPayment = failedPayments[0];
 
     if (!firstPayment) {
       return res.status(404).json({
         success: false,
-
         message: "No failed payments found",
       });
     }
@@ -90,7 +102,7 @@ router.post("/", async (_req, res) => {
     const merchantId = firstPayment.merchantId;
 
     // ==========================================
-    // 6. DETECT DOMINANT FAILURE REASON
+    // 7. DETECT DOMINANT FAILURE REASON
     // ==========================================
 
     const failureReasons = failedPayments.reduce(
@@ -104,14 +116,15 @@ router.post("/", async (_req, res) => {
       {},
     );
 
-    const sortedFailureReasons = Object.entries(failureReasons).sort(
-      ([, a], [, b]) => b - a,
-    );
+    const sortedFailureReasons = Object.entries(
+      failureReasons,
+    ).sort(([, a], [, b]) => b - a);
 
-    const dominantFailureReason = sortedFailureReasons[0]?.[0] ?? "UNKNOWN";
+    const dominantFailureReason =
+      sortedFailureReasons[0]?.[0] ?? "UNKNOWN";
 
     // ==========================================
-    // 7. INCIDENT DETECTION THRESHOLD
+    // 8. INCIDENT DETECTION THRESHOLD
     // ==========================================
 
     const FAILURE_THRESHOLD = 10;
@@ -120,7 +133,8 @@ router.post("/", async (_req, res) => {
       return res.status(200).json({
         success: true,
 
-        message: "Payments analyzed successfully. No major incident detected.",
+        message:
+          "Payments analyzed successfully. No major incident detected.",
 
         analysis: {
           totalPayments,
@@ -137,10 +151,11 @@ router.post("/", async (_req, res) => {
     }
 
     // ==========================================
-    // 8. DETERMINE INCIDENT SEVERITY
+    // 9. DETERMINE INCIDENT SEVERITY
     // ==========================================
 
-    let severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" = "LOW";
+    let severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" =
+      "LOW";
 
     if (failureRate >= 40) {
       severity = "CRITICAL";
@@ -151,7 +166,7 @@ router.post("/", async (_req, res) => {
     }
 
     // ==========================================
-    // 9. PREVENT DUPLICATE OPEN INCIDENTS
+    // 10. CHECK FOR EXISTING INCIDENT
     // ==========================================
 
     const existingIncident = await prisma.incident.findFirst({
@@ -161,19 +176,23 @@ router.post("/", async (_req, res) => {
         type: "PAYMENT_FAILURE_SPIKE",
 
         status: {
-          in: ["OPEN", "INVESTIGATING", "ACTION_REQUIRED"],
+          in: [
+            "OPEN",
+            "INVESTIGATING",
+            "ACTION_REQUIRED",
+          ],
         },
       },
     });
 
     let incident = existingIncident;
 
-    let decision = null;
+    let decision: RecoveryDecision | null = null;
 
     let recoveryAction = null;
 
     // ==========================================
-    // 10. CREATE INCIDENT
+    // 11. CREATE NEW INCIDENT
     // ==========================================
 
     if (!incident) {
@@ -200,7 +219,7 @@ router.post("/", async (_req, res) => {
       });
 
       // ==========================================
-      // 11. AI DECISION ENGINE
+      // 12. AI DECISION ENGINE
       // ==========================================
 
       decision = decideRecoveryAction({
@@ -216,36 +235,44 @@ router.post("/", async (_req, res) => {
       });
 
       // ==========================================
-      // 12. DETERMINE IF ACTION SHOULD BE CREATED
+      // 13. AUTOMATION CHECK
       // ==========================================
 
-      const shouldAutomate = !decision.boundaries.requiresHumanApproval;
+      const shouldAutomate =
+        !decision.boundaries.requiresHumanApproval;
 
       // ==========================================
-      // 13. MAP AI ACTION TO DATABASE ACTION
+      // 14. MAP AI ACTION → DATABASE ACTION
       // ==========================================
 
       const mappedAction =
-        decision.action === "NO_ACTION"
-          ? null
-          : recoveryActionTypeMap[
-              decision.action as keyof typeof recoveryActionTypeMap
-            ];
+        recoveryActionTypeMap[decision.action];
+
+      // ==========================================
+      // 15. CREATE RECOVERY ACTION
+      // ==========================================
 
       if (mappedAction) {
-        recoveryAction = await prisma.recoveryAction.create({
-          data: {
-            type: mappedAction,
-            status: "PENDING",
-            reason: decision.reason,
-            expectedRecovery: shouldAutomate ? revenueAtRisk : 0,
-            incidentId: incident.id,
-          },
-        });
+        recoveryAction =
+          await prisma.recoveryAction.create({
+            data: {
+              type: mappedAction,
+
+              status: "PENDING",
+
+              reason: decision.reason,
+
+              expectedRecovery: shouldAutomate
+                ? revenueAtRisk
+                : 0,
+
+              incidentId: incident.id,
+            },
+          });
       }
 
       // ==========================================
-      // 15. CREATE AUDIT LOG
+      // 16. CREATE AUDIT LOG
       // ==========================================
 
       await prisma.auditLog.create({
@@ -272,13 +299,21 @@ router.post("/", async (_req, res) => {
             aiDecision: {
               action: decision.action,
 
-              mappedDatabaseAction: mappedAction ?? "NO_ACTION",
+              mappedDatabaseAction:
+                mappedAction ?? "NO_ACTION",
 
               shouldAutomate,
 
               reason: decision.reason,
 
-              requiresHumanApproval: decision.boundaries.requiresHumanApproval,
+              maxRetries:
+                decision.boundaries.maxRetries,
+
+              requiresHumanApproval:
+                decision.boundaries.requiresHumanApproval,
+
+              dailyActionLimit:
+                decision.boundaries.dailyActionLimit,
             },
           },
         },
@@ -286,13 +321,13 @@ router.post("/", async (_req, res) => {
     }
 
     // ==========================================
-    // 16. RETURN ANALYSIS RESULT
+    // 17. RETURN RESULT
     // ==========================================
 
     return res.status(200).json({
       success: true,
 
-      message: "🚨 Payment failure incident detected",
+      message: "Payment failure incident detected",
 
       incident,
 
