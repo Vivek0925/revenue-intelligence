@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 
 import prisma from "./lib/prisma";
 import seedRouter from "./routes/seed";
+import analyzeRouter from "./routes/analyze";
 
 dotenv.config();
 
@@ -12,6 +13,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use("/api/seed", seedRouter);
+app.use("/api/analyze", analyzeRouter);
 
 app.get("/", (req, res) => {
   res.json({
