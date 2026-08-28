@@ -1,0 +1,184 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  ACTION_REQUIRED
+  RESOLVED
+  ESCALATED
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RecoveryActionStatus {
+  PENDING
+  APPROVED
+  EXECUTING
+  SUCCESS
+  FAILED
+  BLOCKED
+  ESCALATED
+}
+
+enum RecoveryActionType {
+  RETRY_PAYMENT
+  CREATE_PAYMENT_LINK
+  REQUEST_APPROVAL
+}
+
+model Merchant {
+  id        String @id @default(cuid())
+  name      String
+  email     String @unique
+
+  payments  Payment[]
+  incidents Incident[]
+  policies  Policy[]
+  auditLogs AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Payment {
+  id String @id @default(cuid())
+
+  razorpayPaymentId String? @unique
+  razorpayOrderId   String?
+
+  amount   Int
+  currency String @default("INR")
+
+  status PaymentStatus
+  method String?
+
+  failureReason String?
+
+  customerEmail String?
+
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  recoveryActions RecoveryAction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([status])
+}
+
+model Incident {
+  id String @id @default(cuid())
+
+  title       String
+  description String?
+
+  type     String
+  status   IncidentStatus @default(OPEN)
+  severity IncidentSeverity
+
+  revenueAtRisk Int?
+  confidence    Float?
+
+  rootCause String?
+
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  recoveryActions RecoveryAction[]
+  auditLogs       AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([status])
+}
+
+model RecoveryAction {
+  id String @id @default(cuid())
+
+  type   RecoveryActionType
+  status RecoveryActionStatus @default(PENDING)
+
+  reason String?
+
+  expectedRecovery Int?
+  actualRecovery   Int?
+
+  razorpayReference String?
+
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id])
+
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([incidentId])
+  @@index([paymentId])
+}
+
+model Policy {
+  id String @id @default(cuid())
+
+  name String @default("Default Recovery Policy")
+
+  maxRetries          Int @default(2)
+  maxAutonomousAmount Int @default(500000)
+  dailyActionLimit    Int @default(50)
+  approvalThreshold   Int @default(500000)
+
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  eventType String
+  message   String
+
+  actor String?
+
+  metadata Json?
+
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  incidentId String?
+  incident   Incident? @relation(fields: [incidentId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([merchantId])
+  @@index([incidentId])
+}
