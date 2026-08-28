@@ -1,5 +1,7 @@
 import { Router } from "express";
+
 import prisma from "../lib/prisma";
+import { decideRecoveryAction } from "../services/decision.service";
 
 const router = Router();
 
@@ -15,7 +17,7 @@ router.post("/", async (_req, res) => {
     // Calculate revenue at risk
     const revenueAtRisk = failedPayments.reduce(
       (total, payment) => total + payment.amount,
-      0
+      0,
     );
 
     // Get total payments
@@ -27,11 +29,12 @@ router.post("/", async (_req, res) => {
         ? (failedPayments.length / totalPayments) * 100
         : 0;
 
-    // Get merchant from the first failed payment
+    // No failed payments
     if (failedPayments.length === 0) {
       return res.status(200).json({
         success: true,
         message: "No payment failures detected",
+
         analysis: {
           totalPayments,
           failedPayments: 0,
@@ -41,15 +44,17 @@ router.post("/", async (_req, res) => {
       });
     }
 
+    // Get merchant from first failed payment
     const firstPayment = failedPayments[0];
 
-if (!firstPayment) {
-  return res.status(404).json({
-    message: "No failed payments found",
-  });
-}
+    if (!firstPayment) {
+      return res.status(404).json({
+        success: false,
+        message: "No failed payments found",
+      });
+    }
 
-const merchantId = firstPayment.merchantId;
+    const merchantId = firstPayment.merchantId;
 
     // Detect dominant failure reason
     const failureReasons = failedPayments.reduce(
@@ -60,28 +65,30 @@ const merchantId = firstPayment.merchantId;
 
         return acc;
       },
-      {}
+      {},
     );
 
     const sortedFailureReasons = Object.entries(failureReasons).sort(
-  ([, a], [, b]) => b - a
-);
+      ([, a], [, b]) => b - a,
+    );
 
-const dominantFailureReason =
-  sortedFailureReasons[0]?.[0] ?? "UNKNOWN";
+    const dominantFailureReason =
+      sortedFailureReasons[0]?.[0] ?? "UNKNOWN";
 
-    // Simple incident detection threshold
+    // Incident detection threshold
     const FAILURE_THRESHOLD = 10;
 
     if (failureRate < FAILURE_THRESHOLD) {
       return res.status(200).json({
         success: true,
         message: "Payments analyzed successfully. No major incident detected.",
+
         analysis: {
           totalPayments,
           failedPayments: failedPayments.length,
           failureRate: Number(failureRate.toFixed(2)),
           revenueAtRisk,
+          dominantFailureReason,
         },
       });
     }
@@ -89,15 +96,20 @@ const dominantFailureReason =
     // Determine severity
     let severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" = "LOW";
 
-    if (failureRate >= 40) severity = "CRITICAL";
-    else if (failureRate >= 25) severity = "HIGH";
-    else if (failureRate >= 10) severity = "MEDIUM";
+    if (failureRate >= 40) {
+      severity = "CRITICAL";
+    } else if (failureRate >= 25) {
+      severity = "HIGH";
+    } else if (failureRate >= 10) {
+      severity = "MEDIUM";
+    }
 
     // Prevent duplicate open incidents
     const existingIncident = await prisma.incident.findFirst({
       where: {
         merchantId,
         type: "PAYMENT_FAILURE_SPIKE",
+
         status: {
           in: ["OPEN", "INVESTIGATING", "ACTION_REQUIRED"],
         },
@@ -106,39 +118,30 @@ const dominantFailureReason =
 
     let incident = existingIncident;
 
+    // Create incident only if one doesn't already exist
     if (!incident) {
       incident = await prisma.incident.create({
         data: {
           title: "Payment Failure Spike Detected",
+
           description: `${failedPayments.length} payment failures detected with a ${failureRate.toFixed(
-            2
+            2,
           )}% failure rate.`,
 
           type: "PAYMENT_FAILURE_SPIKE",
           severity,
+
           revenueAtRisk,
+
           confidence: 0.92,
+
           rootCause: dominantFailureReason,
 
           merchantId,
         },
       });
 
-      // Create recommended recovery action
-      await prisma.recoveryAction.create({
-        data: {
-          type: "RETRY_PAYMENT",
-          status: "PENDING",
-
-          reason: `Detected dominant failure reason: ${dominantFailureReason}`,
-
-          expectedRecovery: revenueAtRisk,
-
-          incidentId: incident.id,
-        },
-      });
-
-      // Create audit log
+      // Create audit log for detection
       await prisma.auditLog.create({
         data: {
           eventType: "INCIDENT_DETECTED",
@@ -160,6 +163,16 @@ const dominantFailureReason =
       });
     }
 
+    // 🧠 AI / Decision Engine
+    const decision = decideRecoveryAction({
+      type: incident.type,
+      severity: incident.severity,
+      confidence: incident.confidence ?? 0,
+      revenueAtRisk: incident.revenueAtRisk ?? 0,
+      rootCause: incident.rootCause ?? "UNKNOWN",
+    });
+
+    // Return the complete Detect → Decide result
     return res.status(200).json({
       success: true,
 
@@ -174,6 +187,8 @@ const dominantFailureReason =
         revenueAtRisk,
         dominantFailureReason,
       },
+
+      decision,
     });
   } catch (error) {
     console.error("Analysis error:", error);
