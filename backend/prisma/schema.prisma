@@ -127,6 +127,9 @@ model RecoveryAction {
   expectedRecovery Int?
   actualRecovery   Int?
 
+  retryCount Int @default(0)
+  maxRetries Int @default(3)
+
   razorpayReference String?
 
   incidentId String
