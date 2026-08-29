@@ -1,12 +1,14 @@
 import prisma from "../lib/prisma";
 
 export async function executeRecoveryAction(actionId: string) {
-  // Find the recovery action
+  // ==========================================
+  // 1. FIND RECOVERY ACTION
+  // ==========================================
+
   const action = await prisma.recoveryAction.findUnique({
     where: {
       id: actionId,
     },
-
     include: {
       incident: true,
     },
@@ -16,133 +18,199 @@ export async function executeRecoveryAction(actionId: string) {
     throw new Error("Recovery action not found");
   }
 
-  // Only execute pending actions
-  if (action.status !== "PENDING") {
+  // ==========================================
+  // 2. PREVENT EXECUTING COMPLETED ACTIONS
+  // ==========================================
+
+  if (
+    action.status === "SUCCESS" ||
+    action.status === "ESCALATED" ||
+    action.status === "BLOCKED"
+  ) {
     throw new Error(
       `Recovery action cannot be executed. Current status: ${action.status}`,
     );
   }
 
-  // Mark action as executing
-  await prisma.recoveryAction.update({
-    where: {
-      id: action.id,
-    },
+  // ==========================================
+  // 3. CHECK HUMAN APPROVAL
+  // ==========================================
 
-    data: {
-      status: "EXECUTING",
-    },
-  });
-
-  try {
-    // ==========================================
-    // SIMULATED PAYMENT RECOVERY
-    // ==========================================
-
-    console.log(
-      `⚡ Attempting recovery for action ${action.id}`,
-    );
-
-    // Temporary simulation
-    const recoverySuccessful = Math.random() > 0.35;
-
-    if (!recoverySuccessful) {
-      throw new Error("Payment gateway retry failed");
-    }
-
-    // ==========================================
-    // RECOVERY SUCCESS
-    // ==========================================
-
-    const updatedAction = await prisma.recoveryAction.update({
+  if (action.status === "PENDING") {
+    await prisma.recoveryAction.update({
       where: {
-        id: action.id,
+        id: actionId,
       },
-
       data: {
-        status: "SUCCESS",
+        status: "EXECUTING",
+      },
+    });
+  }
 
-        actualRecovery: action.expectedRecovery,
+  // ==========================================
+  // 4. CHECK RETRY LIMIT
+  // ==========================================
+
+  if (action.retryCount >= action.maxRetries) {
+    const escalatedAction = await prisma.recoveryAction.update({
+      where: {
+        id: actionId,
+      },
+      data: {
+        status: "ESCALATED",
       },
     });
 
-    // Audit log
     await prisma.auditLog.create({
       data: {
-        eventType: "RECOVERY_SUCCEEDED",
-
-        message:
-          "Recovery action executed successfully.",
-
+        eventType: "RECOVERY_ESCALATED",
+        message: `Recovery action exceeded maximum retry limit of ${action.maxRetries}. Human intervention required.`,
         actor: "SYSTEM",
-
         merchantId: action.incident.merchantId,
-
         incidentId: action.incidentId,
-
         metadata: {
           actionId: action.id,
-          actionType: action.type,
-          recoveredAmount: action.expectedRecovery,
-        },
-      },
-    });
-
-    return {
-      success: true,
-
-      message: "Recovery executed successfully",
-
-      recoveryAction: updatedAction,
-    };
-  } catch (error) {
-    // ==========================================
-    // RECOVERY FAILURE
-    // ==========================================
-
-    const updatedAction = await prisma.recoveryAction.update({
-      where: {
-        id: action.id,
-      },
-
-      data: {
-        status: "FAILED",
-      },
-    });
-
-    // Audit log
-    await prisma.auditLog.create({
-      data: {
-        eventType: "RECOVERY_FAILED",
-
-        message: "Recovery action failed gracefully.",
-
-        actor: "SYSTEM",
-
-        merchantId: action.incident.merchantId,
-
-        incidentId: action.incidentId,
-
-        metadata: {
-          actionId: action.id,
-
-          error:
-            error instanceof Error
-              ? error.message
-              : "Unknown recovery error",
-
-          fallback: "ESCALATE_TO_HUMAN",
+          retryCount: action.retryCount,
+          maxRetries: action.maxRetries,
+          reason: "MAX_RETRIES_EXCEEDED",
         },
       },
     });
 
     return {
       success: false,
-
-      message:
-        "Recovery failed. Incident requires human review.",
-
-      recoveryAction: updatedAction,
+      message: "Maximum retry limit reached. Escalated to human.",
+      action: escalatedAction,
     };
   }
+
+  // ==========================================
+  // 5. INCREMENT RETRY COUNT
+  // ==========================================
+
+  const updatedAction = await prisma.recoveryAction.update({
+    where: {
+      id: actionId,
+    },
+    data: {
+      retryCount: {
+        increment: 1,
+      },
+      status: "EXECUTING",
+    },
+  });
+
+  // ==========================================
+  // 6. SIMULATE PAYMENT RECOVERY
+  // ==========================================
+
+  const recoverySuccessful = Math.random() > 0.5;
+
+  // ==========================================
+  // 7. SUCCESS
+  // ==========================================
+
+  if (recoverySuccessful) {
+    const successfulAction = await prisma.recoveryAction.update({
+      where: {
+        id: actionId,
+      },
+      data: {
+        status: "SUCCESS",
+        actualRecovery: updatedAction.expectedRecovery,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        eventType: "RECOVERY_SUCCESS",
+        message: `Recovery succeeded on attempt ${updatedAction.retryCount}.`,
+        actor: "SYSTEM",
+        merchantId: action.incident.merchantId,
+        incidentId: action.incidentId,
+        metadata: {
+          actionId: action.id,
+          attempt: updatedAction.retryCount,
+          recoveredAmount: updatedAction.expectedRecovery,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: `Recovery successful on attempt ${updatedAction.retryCount}`,
+      action: successfulAction,
+    };
+  }
+
+  // ==========================================
+  // 8. RECOVERY FAILED
+  // ==========================================
+
+  const attemptsRemaining =
+    updatedAction.maxRetries - updatedAction.retryCount;
+
+  // Last retry failed → escalate
+  if (attemptsRemaining <= 0) {
+    const escalatedAction = await prisma.recoveryAction.update({
+      where: {
+        id: actionId,
+      },
+      data: {
+        status: "ESCALATED",
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        eventType: "RECOVERY_ESCALATED",
+        message: `Recovery failed after ${updatedAction.retryCount} attempts. Escalated to human.`,
+        actor: "SYSTEM",
+        merchantId: action.incident.merchantId,
+        incidentId: action.incidentId,
+        metadata: {
+          actionId: action.id,
+          retryCount: updatedAction.retryCount,
+          maxRetries: updatedAction.maxRetries,
+        },
+      },
+    });
+
+    return {
+      success: false,
+      message: "Recovery failed. Maximum retries reached. Escalated to human.",
+      action: escalatedAction,
+    };
+  }
+
+  // Still retries remaining
+  const failedAction = await prisma.recoveryAction.update({
+    where: {
+      id: actionId,
+    },
+    data: {
+      status: "FAILED",
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      eventType: "RECOVERY_FAILED",
+      message: `Recovery attempt ${updatedAction.retryCount} failed. ${attemptsRemaining} retries remaining.`,
+      actor: "SYSTEM",
+      merchantId: action.incident.merchantId,
+      incidentId: action.incidentId,
+      metadata: {
+        actionId: action.id,
+        attempt: updatedAction.retryCount,
+        attemptsRemaining,
+      },
+    },
+  });
+
+  return {
+    success: false,
+    message: `Recovery failed. ${attemptsRemaining} retries remaining.`,
+    action: failedAction,
+  };
 }
