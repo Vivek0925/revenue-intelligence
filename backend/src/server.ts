@@ -6,6 +6,7 @@ import prisma from "./lib/prisma";
 import seedRouter from "./routes/seed";
 import analyzeRouter from "./routes/analyze";
 import recoveryRoutes from "./routes/recovery";
+import orchestratorRoutes from "./routes/orchestrator";
 
 dotenv.config();
 
@@ -16,6 +17,8 @@ app.use(express.json());
 app.use("/api/seed", seedRouter);
 app.use("/api/analyze", analyzeRouter);
 app.use("/api/recovery", recoveryRoutes);
+app.use("/api/orchestrate", orchestratorRoutes);
+
 
 app.get("/", (req, res) => {
   res.json({
