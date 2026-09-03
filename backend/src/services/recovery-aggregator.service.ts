@@ -1,14 +1,13 @@
 import prisma from "../lib/prisma";
 
-// ==========================================
-// AGGREGATE CHILD RECOVERY RESULTS
-// ==========================================
-
 export async function aggregateRecovery(parentActionId: string) {
-  // 1. Find parent action
+  // Get parent action with all child actions
   const parentAction = await prisma.recoveryAction.findUnique({
     where: {
       id: parentActionId,
+    },
+    include: {
+      childActions: true,
     },
   });
 
@@ -16,33 +15,19 @@ export async function aggregateRecovery(parentActionId: string) {
     throw new Error("Parent recovery action not found");
   }
 
-  // Ensure this is a parent action
-  if (parentAction.parentActionId !== null) {
-    throw new Error(
-      "Cannot aggregate a child recovery action. Use the parent action ID.",
-    );
-  }
+  const childActions = parentAction.childActions;
 
-  // 2. Fetch children separately
-  const childActions = await prisma.recoveryAction.findMany({
-    where: {
-      parentActionId: parentActionId,
-    },
-  });
+  const totalChildActions = childActions.length;
 
-  if (childActions.length === 0) {
-    throw new Error(
-      "No child recovery actions found for this parent action",
-    );
-  }
-
-  // 3. Calculate counts
   const successfulActions = childActions.filter(
     (action) => action.status === "SUCCESS",
   );
 
   const failedActions = childActions.filter(
-    (action) => action.status === "FAILED",
+    (action) =>
+      action.status === "FAILED" ||
+      action.status === "BLOCKED" ||
+      action.status === "ESCALATED",
   );
 
   const pendingActions = childActions.filter(
@@ -52,53 +37,72 @@ export async function aggregateRecovery(parentActionId: string) {
       action.status === "EXECUTING",
   );
 
-  // 4. Calculate money
+  // Calculate money recovered
+  const totalActualRecovery = successfulActions.reduce(
+    (total, action) => total + (action.actualRecovery ?? 0),
+    0,
+  );
+
   const totalExpectedRecovery = childActions.reduce(
     (total, action) => total + (action.expectedRecovery ?? 0),
     0,
   );
 
-  const totalActualRecovery = childActions.reduce(
-    (total, action) => total + (action.actualRecovery ?? 0),
-    0,
-  );
-
   const recoveryRate =
     totalExpectedRecovery > 0
-      ? (totalActualRecovery / totalExpectedRecovery) * 100
+      ? Number(
+          ((totalActualRecovery / totalExpectedRecovery) * 100).toFixed(2),
+        )
       : 0;
 
-  // 5. Determine parent status
-  let parentStatus:
-    | "PENDING"
-    | "APPROVED"
-    | "EXECUTING"
-    | "SUCCESS"
-    | "FAILED"
-    | "BLOCKED"
-    | "ESCALATED";
+  // ==========================================
+  // DETERMINE PARENT STATUS
+  // ==========================================
 
+  let parentStatus = parentAction.status;
+
+  // Still processing children
   if (pendingActions.length > 0) {
     parentStatus = "EXECUTING";
-  } else if (successfulActions.length > 0) {
+  }
+
+  // All children completed
+  else if (successfulActions.length === totalChildActions) {
     parentStatus = "SUCCESS";
-  } else {
+  }
+
+  // Everything failed
+  else if (failedActions.length === totalChildActions) {
     parentStatus = "FAILED";
   }
 
-  // 6. Update parent
+  // Mixed result
+  else if (
+    successfulActions.length > 0 &&
+    failedActions.length > 0
+  ) {
+    parentStatus = "SUCCESS";
+  }
+
+  // No child actions
+  else if (totalChildActions === 0) {
+    parentStatus = "BLOCKED";
+  }
+
+  // ==========================================
+  // UPDATE PARENT ACTION
+  // ==========================================
+
   const updatedParentAction = await prisma.recoveryAction.update({
     where: {
       id: parentActionId,
     },
     data: {
       status: parentStatus,
-      expectedRecovery: totalExpectedRecovery,
       actualRecovery: totalActualRecovery,
     },
   });
 
-  // 7. Return summary
   return {
     parentAction: {
       id: updatedParentAction.id,
@@ -108,15 +112,13 @@ export async function aggregateRecovery(parentActionId: string) {
     },
 
     summary: {
-      totalChildActions: childActions.length,
+      totalChildActions,
       successfulActions: successfulActions.length,
       failedActions: failedActions.length,
       pendingActions: pendingActions.length,
-
       totalExpectedRecovery,
       totalActualRecovery,
-
-      recoveryRate: Number(recoveryRate.toFixed(2)),
+      recoveryRate,
     },
   };
 }
