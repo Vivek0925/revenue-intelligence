@@ -7,6 +7,7 @@ import seedRouter from "./routes/seed";
 import analyzeRouter from "./routes/analyze";
 import recoveryRoutes from "./routes/recovery";
 import orchestratorRoutes from "./routes/orchestrator";
+import childRecoveryRoutes from "./routes/child-recovery";
 
 dotenv.config();
 
@@ -18,6 +19,7 @@ app.use("/api/seed", seedRouter);
 app.use("/api/analyze", analyzeRouter);
 app.use("/api/recovery", recoveryRoutes);
 app.use("/api/orchestrate", orchestratorRoutes);
+app.use("/api/child-recovery", childRecoveryRoutes);
 
 
 app.get("/", (req, res) => {
