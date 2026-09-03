@@ -5,16 +5,10 @@ import prisma from "../lib/prisma";
 // ==========================================
 
 export async function aggregateRecovery(parentActionId: string) {
-  // ==========================================
-  // 1. FIND PARENT ACTION
-  // ==========================================
-
+  // 1. Find parent action
   const parentAction = await prisma.recoveryAction.findUnique({
     where: {
       id: parentActionId,
-    },
-    include: {
-      childActions: true,
     },
   });
 
@@ -22,17 +16,19 @@ export async function aggregateRecovery(parentActionId: string) {
     throw new Error("Parent recovery action not found");
   }
 
-  // ==========================================
-  // 2. ENSURE THIS IS A PARENT ACTION
-  // ==========================================
-
-  if (parentAction.parentActionId) {
+  // Ensure this is a parent action
+  if (parentAction.parentActionId !== null) {
     throw new Error(
       "Cannot aggregate a child recovery action. Use the parent action ID.",
     );
   }
 
-  const childActions = parentAction.childActions;
+  // 2. Fetch children separately
+  const childActions = await prisma.recoveryAction.findMany({
+    where: {
+      parentActionId: parentActionId,
+    },
+  });
 
   if (childActions.length === 0) {
     throw new Error(
@@ -40,10 +36,7 @@ export async function aggregateRecovery(parentActionId: string) {
     );
   }
 
-  // ==========================================
-  // 3. CALCULATE RECOVERY STATISTICS
-  // ==========================================
-
+  // 3. Calculate counts
   const successfulActions = childActions.filter(
     (action) => action.status === "SUCCESS",
   );
@@ -59,12 +52,13 @@ export async function aggregateRecovery(parentActionId: string) {
       action.status === "EXECUTING",
   );
 
+  // 4. Calculate money
   const totalExpectedRecovery = childActions.reduce(
     (total, action) => total + (action.expectedRecovery ?? 0),
     0,
   );
 
-  const totalActualRecovery = successfulActions.reduce(
+  const totalActualRecovery = childActions.reduce(
     (total, action) => total + (action.actualRecovery ?? 0),
     0,
   );
@@ -74,29 +68,25 @@ export async function aggregateRecovery(parentActionId: string) {
       ? (totalActualRecovery / totalExpectedRecovery) * 100
       : 0;
 
-  // ==========================================
-  // 4. DETERMINE PARENT STATUS
-  // ==========================================
+  // 5. Determine parent status
+  let parentStatus:
+    | "PENDING"
+    | "APPROVED"
+    | "EXECUTING"
+    | "SUCCESS"
+    | "FAILED"
+    | "BLOCKED"
+    | "ESCALATED";
 
-  let parentStatus = parentAction.status;
-
-  // All child actions are completed
-  if (pendingActions.length === 0) {
-    if (successfulActions.length === childActions.length) {
-      parentStatus = "SUCCESS";
-    } else if (successfulActions.length > 0) {
-      parentStatus = "SUCCESS";
-    } else {
-      parentStatus = "FAILED";
-    }
-  } else {
+  if (pendingActions.length > 0) {
     parentStatus = "EXECUTING";
+  } else if (successfulActions.length > 0) {
+    parentStatus = "SUCCESS";
+  } else {
+    parentStatus = "FAILED";
   }
 
-  // ==========================================
-  // 5. UPDATE PARENT ACTION
-  // ==========================================
-
+  // 6. Update parent
   const updatedParentAction = await prisma.recoveryAction.update({
     where: {
       id: parentActionId,
@@ -108,24 +98,22 @@ export async function aggregateRecovery(parentActionId: string) {
     },
   });
 
-  // ==========================================
-  // 6. RETURN AGGREGATED RESULT
-  // ==========================================
-
+  // 7. Return summary
   return {
-    parentAction: updatedParentAction,
+    parentAction: {
+      id: updatedParentAction.id,
+      status: updatedParentAction.status,
+      expectedRecovery: updatedParentAction.expectedRecovery,
+      actualRecovery: updatedParentAction.actualRecovery,
+    },
 
     summary: {
       totalChildActions: childActions.length,
-
       successfulActions: successfulActions.length,
-
       failedActions: failedActions.length,
-
       pendingActions: pendingActions.length,
 
       totalExpectedRecovery,
-
       totalActualRecovery,
 
       recoveryRate: Number(recoveryRate.toFixed(2)),
