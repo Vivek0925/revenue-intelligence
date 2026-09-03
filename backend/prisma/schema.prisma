@@ -116,34 +116,39 @@ model Incident {
   @@index([status])
 }
 
-model RecoveryAction {
-  id String @id @default(cuid())
+  model RecoveryAction {
+    id String @id @default(cuid())
 
-  type   RecoveryActionType
-  status RecoveryActionStatus @default(PENDING)
+    type   RecoveryActionType
+    status RecoveryActionStatus @default(PENDING)
 
-  reason String?
+    reason String?
 
-  expectedRecovery Int?
-  actualRecovery   Int?
+    expectedRecovery Int?
+    actualRecovery   Int?
 
-  retryCount Int @default(0)
-  maxRetries Int @default(3)
+    retryCount Int @default(0)
+    maxRetries Int @default(3)
 
-  razorpayReference String?
+    razorpayReference String?
 
-  incidentId String
-  incident   Incident @relation(fields: [incidentId], references: [id])
+    incidentId String
+    incident   Incident @relation(fields: [incidentId], references: [id])
 
-  paymentId String?
-  payment   Payment? @relation(fields: [paymentId], references: [id])
+    paymentId String?
+    payment   Payment? @relation(fields: [paymentId], references: [id])
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+    parentActionId String?
+    parentAction RecoveryAction? @relation("RecoveryActionHierarchy", fields: [parentActionId], references: [id])
+    childActions RecoveryAction[] @relation("RecoveryActionHierarchy")
 
-  @@index([incidentId])
-  @@index([paymentId])
-}
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([incidentId])
+    @@index([paymentId])
+    @@index([parentActionId])
+  }
 
 model Policy {
   id String @id @default(cuid())
