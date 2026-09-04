@@ -1,413 +1,130 @@
-"use client";
-
+import Link from "next/link";
 import {
-  AlertTriangle,
-  ArrowUpRight,
-  CheckCircle2,
-  DollarSign,
-  RefreshCw,
-  ShieldAlert,
+  ArrowRight,
+  BrainCircuit,
+  ShieldCheck,
   TrendingUp,
-  XCircle,
+  Zap,
 } from "lucide-react";
 
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
-
-const recoveryData = [
-  {
-    name: "Expected",
-    amount: 29489,
-  },
-  {
-    name: "Recovered",
-    amount: 16166,
-  },
-];
-
-const recoveryStatusData = [
-  {
-    name: "Success",
-    value: 5,
-  },
-  {
-    name: "Failed",
-    value: 3,
-  },
-];
-
-const childActions = [
-  {
-    id: "Payment Recovery #1",
-    amount: 5250,
-    status: "SUCCESS",
-  },
-  {
-    id: "Payment Recovery #2",
-    amount: 1708,
-    status: "FAILED",
-  },
-  {
-    id: "Payment Recovery #3",
-    amount: 3424,
-    status: "FAILED",
-  },
-  {
-    id: "Payment Recovery #4",
-    amount: 1506,
-    status: "SUCCESS",
-  },
-  {
-    id: "Payment Recovery #5",
-    amount: 5312,
-    status: "SUCCESS",
-  },
-  {
-    id: "Payment Recovery #6",
-    amount: 4825,
-    status: "SUCCESS",
-  },
-  {
-    id: "Payment Recovery #7",
-    amount: 4649,
-    status: "FAILED",
-  },
-  {
-    id: "Payment Recovery #8",
-    amount: 2815,
-    status: "SUCCESS",
-  },
-];
-
 export default function Home() {
-  const recoveryRate = 54.82;
-
   return (
-    <main className="dashboard">
-      {/* Sidebar */}
+    <main className="min-h-screen bg-[#09090b] text-white">
+      {/* Navigation */}
 
-      <aside className="sidebar">
-        <div className="logo">
-          <div className="logo-icon">
+      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600">
             <TrendingUp size={22} />
           </div>
 
           <div>
-            <h2>RevenueAI</h2>
-            <span>Intelligence Platform</span>
+            <h1 className="font-semibold">RevenueAI</h1>
+            <p className="text-xs text-zinc-500">
+              Intelligence Platform
+            </p>
           </div>
         </div>
 
-        <nav>
-          <a className="nav-item active">
-            <TrendingUp size={19} />
-            Dashboard
-          </a>
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-200"
+        >
+          Open Dashboard
+          <ArrowRight size={16} />
+        </Link>
+      </nav>
 
-          <a className="nav-item">
-            <ShieldAlert size={19} />
-            Incidents
-          </a>
+      {/* Hero */}
 
-          <a className="nav-item">
-            <RefreshCw size={19} />
-            Recovery Actions
-          </a>
-
-          <a className="nav-item">
-            <DollarSign size={19} />
-            Revenue Analytics
-          </a>
-        </nav>
-
-        <div className="sidebar-bottom">
-          <div className="system-status">
-            <span className="status-dot"></span>
-            System Operational
-          </div>
+      <section className="mx-auto flex max-w-7xl flex-col items-center px-6 pb-20 pt-24 text-center lg:pt-32">
+        <div className="mb-6 flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-2 text-sm text-blue-400">
+          <Zap size={15} />
+          AI-Powered Revenue Recovery
         </div>
-      </aside>
 
-      {/* Main Content */}
+        <h2 className="max-w-4xl text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
+          Detect failures.
+          <br />
+          Recover revenue.
+          <br />
+          <span className="text-zinc-500">
+            Automatically.
+          </span>
+        </h2>
 
-      <section className="content">
-        {/* Header */}
+        <p className="mt-8 max-w-2xl text-lg leading-8 text-zinc-400">
+          RevenueAI detects payment failures, identifies root causes,
+          makes intelligent recovery decisions, and helps recover lost
+          revenue automatically.
+        </p>
 
-        <header className="header">
-          <div>
-            <p className="eyebrow">REVENUE INTELLIGENCE</p>
+        <div className="mt-10 flex flex-col gap-4 sm:flex-row">
+          <Link
+            href="/dashboard"
+            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-medium transition hover:bg-blue-500"
+          >
+            View Recovery Dashboard
+            <ArrowRight size={18} />
+          </Link>
 
-            <h1>Recovery Dashboard</h1>
+          <a
+            href="http://localhost:5000/api/health"
+            target="_blank"
+            className="rounded-xl border border-white/10 px-6 py-3 font-medium text-zinc-300 transition hover:bg-white/5"
+          >
+            Check API Status
+          </a>
+        </div>
+      </section>
 
-            <p className="subtitle">
-              AI-powered payment failure detection and revenue recovery.
-            </p>
+      {/* Features */}
+
+      <section className="mx-auto grid max-w-7xl gap-5 px-6 pb-20 md:grid-cols-3">
+        <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-6">
+          <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
+            <TrendingUp size={21} />
           </div>
 
-          <button className="refresh-button">
-            <RefreshCw size={18} />
-            Refresh Data
-          </button>
-        </header>
+          <h3 className="text-lg font-semibold">
+            Failure Detection
+          </h3>
 
-        {/* Stats */}
+          <p className="mt-3 text-sm leading-6 text-zinc-500">
+            Detect abnormal payment failure patterns before they cause
+            significant revenue loss.
+          </p>
+        </div>
 
-        <section className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-icon danger">
-              <AlertTriangle size={22} />
-            </div>
-
-            <div>
-              <p>Revenue At Risk</p>
-              <h2>₹29,489</h2>
-              <span className="negative">8 failed payments</span>
-            </div>
+        <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-6">
+          <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-purple-500/10 text-purple-400">
+            <BrainCircuit size={21} />
           </div>
 
-          <div className="stat-card">
-            <div className="stat-icon success">
-              <CheckCircle2 size={22} />
-            </div>
+          <h3 className="text-lg font-semibold">
+            AI Decision Engine
+          </h3>
 
-            <div>
-              <p>Revenue Recovered</p>
-              <h2>₹16,166</h2>
-              <span className="positive">5 successful recoveries</span>
-            </div>
+          <p className="mt-3 text-sm leading-6 text-zinc-500">
+            Analyze failure reasons and intelligently decide the best
+            recovery strategy.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-6">
+          <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-green-500/10 text-green-400">
+            <ShieldCheck size={21} />
           </div>
 
-          <div className="stat-card">
-            <div className="stat-icon primary">
-              <TrendingUp size={22} />
-            </div>
+          <h3 className="text-lg font-semibold">
+            Automated Recovery
+          </h3>
 
-            <div>
-              <p>Recovery Rate</p>
-              <h2>{recoveryRate}%</h2>
-              <span className="positive">AI recovery performance</span>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon warning">
-              <ShieldAlert size={22} />
-            </div>
-
-            <div>
-              <p>Active Incident</p>
-              <h2>1</h2>
-              <span className="warning-text">Payment failure spike</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Incident + AI */}
-
-        <section className="top-grid">
-          <div className="panel incident-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-label">ACTIVE INCIDENT</p>
-                <h2>Payment Failure Spike Detected</h2>
-              </div>
-
-              <span className="severity medium">MEDIUM</span>
-            </div>
-
-            <div className="incident-details">
-              <div>
-                <span>Failure Rate</span>
-                <strong>16.67%</strong>
-              </div>
-
-              <div>
-                <span>Root Cause</span>
-                <strong>BANK_TIMEOUT</strong>
-              </div>
-
-              <div>
-                <span>AI Confidence</span>
-                <strong>92%</strong>
-              </div>
-            </div>
-
-            <div className="incident-footer">
-              <AlertTriangle size={18} />
-
-              <span>
-                AI detected abnormal payment failure behavior requiring
-                automated recovery.
-              </span>
-            </div>
-          </div>
-
-          <div className="panel ai-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-label">AI DECISION ENGINE</p>
-                <h2>WAIT_AND_RETRY</h2>
-              </div>
-
-              <div className="ai-badge">AI</div>
-            </div>
-
-            <p className="ai-reason">
-              Bank timeout detected. A delayed controlled retry is recommended.
-            </p>
-
-            <div className="ai-boundaries">
-              <div>
-                <span>Max Retries</span>
-                <strong>3</strong>
-              </div>
-
-              <div>
-                <span>Human Approval</span>
-                <strong className="approved">Not Required</strong>
-              </div>
-
-              <div>
-                <span>Daily Limit</span>
-                <strong>100 Actions</strong>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Charts */}
-
-        <section className="chart-grid">
-          <div className="panel chart-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-label">RECOVERY PERFORMANCE</p>
-                <h2>Expected vs Recovered Revenue</h2>
-              </div>
-            </div>
-
-            <div className="chart">
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={recoveryData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-
-                  <XAxis dataKey="name" />
-
-                  <YAxis />
-
-                  <Tooltip />
-
-                  <Bar dataKey="amount" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="panel chart-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-label">ACTION RESULTS</p>
-                <h2>Recovery Outcomes</h2>
-              </div>
-            </div>
-
-            <div className="pie-container">
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={recoveryStatusData}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={65}
-                    outerRadius={100}
-                    paddingAngle={5}
-                  >
-                    {recoveryStatusData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={index === 0 ? "#22c55e" : "#ef4444"}
-                      />
-                    ))}
-                  </Pie>
-
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-
-              <div className="chart-legend">
-                <span>
-                  <i className="success-dot"></i>
-                  5 Successful
-                </span>
-
-                <span>
-                  <i className="failed-dot"></i>
-                  3 Failed
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Recovery Actions */}
-
-        <section className="panel actions-panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-label">RECOVERY PIPELINE</p>
-              <h2>Individual Payment Recovery Actions</h2>
-            </div>
-
-            <span className="action-summary">
-              5 Success · 3 Failed
-            </span>
-          </div>
-
-          <div className="actions-list">
-            {childActions.map((action) => (
-              <div className="action-row" key={action.id}>
-                <div className="action-info">
-                  {action.status === "SUCCESS" ? (
-                    <CheckCircle2
-                      className="success-icon"
-                      size={21}
-                    />
-                  ) : (
-                    <XCircle className="failed-icon" size={21} />
-                  )}
-
-                  <span>{action.id}</span>
-                </div>
-
-                <div className="action-amount">
-                  ₹{action.amount.toLocaleString()}
-                </div>
-
-                <span
-                  className={`action-status ${
-                    action.status === "SUCCESS"
-                      ? "success-status"
-                      : "failed-status"
-                  }`}
-                >
-                  {action.status}
-                </span>
-
-                <ArrowUpRight size={18} className="action-arrow" />
-              </div>
-            ))}
-          </div>
-        </section>
+          <p className="mt-3 text-sm leading-6 text-zinc-500">
+            Execute controlled recovery actions and track every payment
+            through the recovery pipeline.
+          </p>
+        </div>
       </section>
     </main>
   );
