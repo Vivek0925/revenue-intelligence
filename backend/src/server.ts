@@ -9,6 +9,7 @@ import recoveryRoutes from "./routes/recovery";
 import orchestratorRoutes from "./routes/orchestrator";
 import childRecoveryRoutes from "./routes/child-recovery";
 import recoveryAggregatorRoutes from "./routes/recovery-aggregator";
+import dashboardRoutes from "./routes/dashboard";
 
 dotenv.config();
 
@@ -22,6 +23,7 @@ app.use("/api/recovery", recoveryRoutes);
 app.use("/api/orchestrate", orchestratorRoutes);
 app.use("/api/child-recovery", childRecoveryRoutes);
 app.use("/api/recovery-aggregate", recoveryAggregatorRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 app.get("/", (req, res) => {
   res.json({
