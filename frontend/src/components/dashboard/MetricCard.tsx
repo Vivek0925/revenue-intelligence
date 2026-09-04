@@ -10,19 +10,27 @@ export default function MetricCard({
   subtitle,
 }: MetricCardProps) {
   return (
-    <div className="rounded-xl border border-white/10 bg-zinc-900 p-5">
-      <p className="text-sm text-zinc-400">
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      {/* Title */}
+
+      <p className="text-sm font-medium text-slate-500">
         {title}
       </p>
 
-      <h2 className="mt-2 text-3xl font-semibold text-white">
+      {/* Value */}
+
+      <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900">
         {value}
       </h2>
 
+      {/* Subtitle */}
+
       {subtitle && (
-        <p className="mt-2 text-sm text-zinc-500">
-          {subtitle}
-        </p>
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <p className="text-sm text-slate-500">
+            {subtitle}
+          </p>
+        </div>
       )}
     </div>
   );

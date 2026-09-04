@@ -29,43 +29,47 @@ export default function ChildActionsTable({
 
   const statusStyles: Record<string, string> = {
     SUCCESS:
-      "bg-green-500/10 text-green-400 border-green-500/20",
+      "border-emerald-200 bg-emerald-50 text-emerald-700",
 
     FAILED:
-      "bg-red-500/10 text-red-400 border-red-500/20",
+      "border-red-200 bg-red-50 text-red-700",
 
     PENDING:
-      "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+      "border-amber-200 bg-amber-50 text-amber-700",
 
     EXECUTING:
-      "bg-blue-500/10 text-blue-400 border-blue-500/20",
+      "border-blue-200 bg-blue-50 text-blue-700",
 
     APPROVED:
-      "bg-purple-500/10 text-purple-400 border-purple-500/20",
+      "border-purple-200 bg-purple-50 text-purple-700",
 
     BLOCKED:
-      "bg-orange-500/10 text-orange-400 border-orange-500/20",
+      "border-orange-200 bg-orange-50 text-orange-700",
 
     ESCALATED:
-      "bg-red-500/10 text-red-400 border-red-500/20",
+      "border-red-200 bg-red-50 text-red-700",
   };
 
   return (
-    <div className="rounded-xl border border-white/10 bg-zinc-900">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       {/* Header */}
 
-      <div className="flex items-center justify-between border-b border-white/10 p-6">
+      <div className="flex flex-col gap-4 border-b border-slate-200 p-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm font-medium text-indigo-600">
             Recovery Actions
           </p>
 
-          <h2 className="mt-1 text-xl font-semibold text-white">
+          <h2 className="mt-1 text-xl font-semibold text-slate-900">
             Individual Payment Recovery
           </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Track recovery attempts for each failed payment.
+          </p>
         </div>
 
-        <div className="rounded-lg bg-zinc-800 px-3 py-1 text-sm text-zinc-400">
+        <div className="w-fit rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700">
           {actions.length} Actions
         </div>
       </div>
@@ -74,25 +78,25 @@ export default function ChildActionsTable({
 
       <div className="overflow-x-auto">
         <table className="w-full text-left">
-          <thead className="border-b border-white/10 text-xs uppercase text-zinc-500">
+          <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-6 py-4 font-medium">
+              <th className="px-6 py-4 font-semibold">
                 Payment
               </th>
 
-              <th className="px-6 py-4 font-medium">
+              <th className="px-6 py-4 font-semibold">
                 Status
               </th>
 
-              <th className="px-6 py-4 font-medium">
+              <th className="px-6 py-4 font-semibold">
                 Expected
               </th>
 
-              <th className="px-6 py-4 font-medium">
+              <th className="px-6 py-4 font-semibold">
                 Recovered
               </th>
 
-              <th className="px-6 py-4 font-medium">
+              <th className="px-6 py-4 font-semibold">
                 Retries
               </th>
             </tr>
@@ -102,18 +106,18 @@ export default function ChildActionsTable({
             {actions.map((action) => (
               <tr
                 key={action.id}
-                className="border-b border-white/5 transition hover:bg-white/[0.02]"
+                className="border-b border-slate-100 transition hover:bg-indigo-50/40"
               >
-                {/* Payment ID */}
+                {/* Payment */}
 
                 <td className="px-6 py-4">
-                  <p className="font-medium text-white">
+                  <p className="font-medium text-slate-800">
                     {action.paymentId
                       ? `${action.paymentId.slice(0, 12)}...`
                       : "Unknown"}
                   </p>
 
-                  <p className="mt-1 text-xs text-zinc-500">
+                  <p className="mt-1 max-w-xs truncate text-xs text-slate-500">
                     {action.reason ?? "No reason provided"}
                   </p>
                 </td>
@@ -122,9 +126,9 @@ export default function ChildActionsTable({
 
                 <td className="px-6 py-4">
                   <span
-                    className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
                       statusStyles[action.status] ??
-                      "border-zinc-700 bg-zinc-800 text-zinc-400"
+                      "border-slate-200 bg-slate-50 text-slate-600"
                     }`}
                   >
                     {action.status}
@@ -133,7 +137,7 @@ export default function ChildActionsTable({
 
                 {/* Expected */}
 
-                <td className="px-6 py-4 font-medium text-zinc-300">
+                <td className="px-6 py-4 font-medium text-slate-700">
                   {formatCurrency(action.expectedRecovery)}
                 </td>
 
@@ -143,18 +147,25 @@ export default function ChildActionsTable({
                   <span
                     className={
                       action.status === "SUCCESS"
-                        ? "text-green-400"
-                        : "text-zinc-500"
+                        ? "text-emerald-600"
+                        : "text-slate-400"
                     }
                   >
                     {formatCurrency(action.actualRecovery)}
                   </span>
                 </td>
 
-                {/* Retry */}
+                {/* Retries */}
 
-                <td className="px-6 py-4 text-zinc-400">
-                  {action.retryCount} / {action.maxRetries}
+                <td className="px-6 py-4">
+                  <span className="font-medium text-slate-700">
+                    {action.retryCount}
+                  </span>
+
+                  <span className="text-slate-400">
+                    {" "}
+                    / {action.maxRetries}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -165,8 +176,14 @@ export default function ChildActionsTable({
       {/* Empty State */}
 
       {actions.length === 0 && (
-        <div className="p-10 text-center text-zinc-500">
-          No recovery actions found.
+        <div className="p-12 text-center">
+          <p className="font-medium text-slate-700">
+            No recovery actions found
+          </p>
+
+          <p className="mt-2 text-sm text-slate-500">
+            Recovery actions will appear here when payments are processed.
+          </p>
         </div>
       )}
     </div>
