@@ -1,28 +1,94 @@
+"use client";
+
 import Link from "next/link";
+import Script from "next/script";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
+  Brain,
   CheckCircle2,
-  XCircle,
   Clock3,
-  BrainCircuit,
-  ShieldCheck,
-  AlertTriangle,
-  ArrowRight,
+  CreditCard,
+  Loader2,
+  RefreshCw,
+  ShieldAlert,
+  Sparkles,
+  XCircle,
 } from "lucide-react";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:5000";
 
-async function getIncident(id: string) {
-  const response = await fetch(`${API_URL}/api/incidents/${id}`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch incident");
+declare global {
+  interface Window {
+    Razorpay: any;
   }
+}
 
-  return response.json();
+interface Payment {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  method: string | null;
+  failureReason: string | null;
+  customerEmail: string | null;
+  razorpayPaymentId: string | null;
+  razorpayOrderId: string | null;
+  createdAt: string;
+}
+
+interface RecoveryAction {
+  id: string;
+  type: string;
+  status: string;
+  reason: string | null;
+  expectedRecovery: number | null;
+  actualRecovery: number | null;
+  retryCount: number;
+  maxRetries: number;
+  razorpayReference: string | null;
+  paymentId: string | null;
+}
+
+interface Incident {
+  id: string;
+  title: string;
+  description: string | null;
+  type: string;
+  status: string;
+  severity: string;
+  revenueAtRisk: number | null;
+  confidence: number | null;
+  rootCause: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface IncidentData {
+  success: boolean;
+  incident: Incident;
+  parentAction: RecoveryAction | null;
+  childActions: RecoveryAction[];
+  summary: {
+    totalChildActions: number;
+    successfulActions: number;
+    failedActions: number;
+    pendingActions: number;
+    totalExpectedRecovery: number;
+    totalActualRecovery: number;
+    recoveryRate: number;
+  };
+  decision?: {
+    action: string;
+    reason: string;
+    boundaries: {
+      maxRetries: number;
+      requiresHumanApproval: boolean;
+      dailyActionLimit: number;
+    };
+  };
 }
 
 function formatCurrency(amount: number | null | undefined) {
@@ -30,486 +96,828 @@ function formatCurrency(amount: number | null | undefined) {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 0,
-  }).format(amount ?? 0);
+  }).format((amount ?? 0) / 100);
 }
 
 function formatDate(date: string) {
-  return new Intl.DateTimeFormat("en-IN", {
+  return new Date(date).toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(date));
+  });
 }
 
-function statusStyle(status: string) {
-  const styles: Record<string, string> = {
-    SUCCESS: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    FAILED: "border-red-200 bg-red-50 text-red-700",
-    PENDING: "border-amber-200 bg-amber-50 text-amber-700",
-    EXECUTING: "border-blue-200 bg-blue-50 text-blue-700",
-    APPROVED: "border-purple-200 bg-purple-50 text-purple-700",
-    BLOCKED: "border-orange-200 bg-orange-50 text-orange-700",
-    ESCALATED: "border-red-200 bg-red-50 text-red-700",
-  };
+function statusClasses(status: string) {
+  switch (status) {
+    case "SUCCESS":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
 
-  return (
-    styles[status] ??
-    "border-slate-200 bg-slate-50 text-slate-600"
-  );
+    case "FAILED":
+      return "border-red-200 bg-red-50 text-red-700";
+
+    case "EXECUTING":
+      return "border-indigo-200 bg-indigo-50 text-indigo-700";
+
+    case "PENDING":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+
+    case "ESCALATED":
+      return "border-purple-200 bg-purple-50 text-purple-700";
+
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-600";
+  }
 }
 
-function severityStyle(severity: string) {
-  const styles: Record<string, string> = {
-    LOW: "border-blue-200 bg-blue-50 text-blue-700",
-    MEDIUM: "border-amber-200 bg-amber-50 text-amber-700",
-    HIGH: "border-orange-200 bg-orange-50 text-orange-700",
-    CRITICAL: "border-red-200 bg-red-50 text-red-700",
-  };
+function severityClasses(severity: string) {
+  switch (severity) {
+    case "CRITICAL":
+      return "border-red-200 bg-red-50 text-red-700";
 
-  return (
-    styles[severity] ??
-    "border-slate-200 bg-slate-50 text-slate-600"
-  );
+    case "HIGH":
+      return "border-orange-200 bg-orange-50 text-orange-700";
+
+    case "MEDIUM":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+
+    default:
+      return "border-blue-200 bg-blue-50 text-blue-700";
+  }
 }
 
-export default async function IncidentDetailsPage({
+export default function IncidentDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const data = await getIncident(id);
+  const [incidentId, setIncidentId] =
+    useState<string | null>(null);
 
-  const incident = data.incident;
-  const parentAction = data.parentAction;
-  const childActions = data.childActions ?? [];
-  const summary = data.summary;
-  const decision = data.decision;
+  const [data, setData] =
+    useState<IncidentData | null>(null);
 
-  return (
-    <main className="min-h-screen bg-[#f8fafc] text-slate-900">
-      <div className="pointer-events-none absolute left-0 top-0 -z-0 h-[380px] w-full bg-gradient-to-b from-indigo-50 via-purple-50/30 to-transparent" />
+  const [loading, setLoading] =
+    useState(true);
 
-      <div className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+  const [recoveryLoading, setRecoveryLoading] =
+    useState(false);
 
-        {/* Header */}
-        <div className="border-b border-slate-200 pb-6">
+  const [message, setMessage] =
+    useState("");
+
+  const [error, setError] =
+    useState("");
+
+  useEffect(() => {
+    params.then(({ id }) => {
+      setIncidentId(id);
+    });
+  }, [params]);
+
+  async function loadIncident(id: string) {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch(
+        `${API_URL}/api/incidents/${id}`,
+        {
+          cache: "no-store",
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            "Failed to load incident"
+        );
+      }
+
+      setData(result);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load incident"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (incidentId) {
+      loadIncident(incidentId);
+    }
+  }, [incidentId]);
+
+  async function startRecovery(
+    action: RecoveryAction
+  ) {
+    try {
+      setRecoveryLoading(true);
+      setMessage("");
+      setError("");
+
+      /*
+       * Create a NEW Razorpay order
+       * for this recovery attempt.
+       */
+
+      const response = await fetch(
+        `${API_URL}/api/recovery/${action.id}/create-order`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            "Failed to create recovery order"
+        );
+      }
+
+      if (!window.Razorpay) {
+        throw new Error(
+          "Razorpay Checkout is still loading. Please try again."
+        );
+      }
+
+      const order = result.order;
+
+      /*
+       * Open real Razorpay Test Mode Checkout.
+       */
+
+      const razorpay = new window.Razorpay({
+        key: result.keyId,
+
+        amount: order.amount,
+
+        currency: order.currency,
+
+        name: "RevenueAI",
+
+        description:
+          "RevenueAI Recovery Payment",
+
+        order_id: order.id,
+
+        prefill: {
+          email:
+            action.paymentId
+              ? undefined
+              : undefined,
+        },
+
+        theme: {
+          color: "#4f46e5",
+        },
+
+        handler: async function () {
+          setMessage(
+            "Recovery payment submitted. Waiting for Razorpay confirmation..."
+          );
+
+          /*
+           * The webhook is responsible for
+           * marking the recovery SUCCESS.
+           */
+
+          setTimeout(() => {
+            if (incidentId) {
+              loadIncident(incidentId);
+            }
+          }, 2500);
+        },
+
+        modal: {
+          ondismiss: function () {
+            setRecoveryLoading(false);
+          },
+        },
+      });
+
+      razorpay.on(
+        "payment.failed",
+        function (response: any) {
+          console.error(
+            "Recovery payment failed:",
+            response
+          );
+
+          setError(
+            response.error?.description ||
+              "Recovery payment failed"
+          );
+
+          setRecoveryLoading(false);
+        }
+      );
+
+      razorpay.open();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to start recovery"
+      );
+
+      setRecoveryLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f8fafc]">
+        <div className="flex items-center gap-3 text-sm text-slate-500">
+          <Loader2
+            size={18}
+            className="animate-spin"
+          />
+          Loading incident...
+        </div>
+      </main>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <main className="min-h-screen bg-[#f8fafc] px-4 py-10">
+        <div className="mx-auto max-w-4xl">
           <Link
             href="/incidents"
-            className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition hover:text-indigo-600"
+            className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-indigo-600"
           >
             <ArrowLeft size={16} />
-            Back to Incident History
+            Back to incidents
           </Link>
 
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+            {error}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const incident = data.incident;
+
+  /*
+   * Find the first actionable recovery.
+   */
+
+ const actionableRecovery =
+  data.childActions.find(
+    (action) =>
+      (action.status === "PENDING" ||
+        action.status === "FAILED") &&
+      action.type === "RETRY_PAYMENT" &&
+      action.retryCount < action.maxRetries
+  ) ??
+  (data.parentAction &&
+  (data.parentAction.status === "PENDING" ||
+    data.parentAction.status === "FAILED") &&
+  data.parentAction.retryCount <
+    data.parentAction.maxRetries
+    ? data.parentAction
+    : null);
+
+  return (
+    <>
+      <Script
+        src="https://checkout.razorpay.com/v1/checkout.js"
+        strategy="afterInteractive"
+      />
+
+      <main className="min-h-screen bg-[#f8fafc] text-slate-900">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+
+          {/* Header */}
+
+          <div className="flex flex-col gap-5 border-b border-slate-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="flex flex-wrap items-center gap-3">
-                <p className="text-sm font-semibold uppercase tracking-wider text-indigo-600">
-                  Post-Incident Report
-                </p>
+              <Link
+                href="/incidents"
+                className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition hover:text-indigo-600"
+              >
+                <ArrowLeft size={16} />
+                Incident History
+              </Link>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                  {incident.title}
+                </h1>
 
                 <span
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${severityStyle(
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${severityClasses(
                     incident.severity
                   )}`}
                 >
                   {incident.severity}
                 </span>
-              </div>
 
-              <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-                {incident.title}
-              </h1>
-
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
-                {incident.description}
-              </p>
-
-              <p className="mt-4 text-xs text-slate-400">
-                Detected {formatDate(incident.createdAt)}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-              <CheckCircle2
-                size={18}
-                className="text-emerald-600"
-              />
-              <div>
-                <p className="text-xs text-emerald-600">
-                  Recovery Status
-                </p>
-                <p className="font-semibold text-emerald-700">
-                  {parentAction?.status ?? "NO_ACTION"}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Incident overview */}
-        <section className="mt-8">
-          <div className="mb-4">
-            <p className="text-sm font-semibold text-indigo-600">
-              Incident Overview
-            </p>
-            <h2 className="mt-1 text-xl font-semibold text-slate-900">
-              What happened
-            </h2>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Revenue At Risk
-              </p>
-              <p className="mt-3 text-2xl font-bold text-slate-900">
-                {formatCurrency(incident.revenueAtRisk)}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Revenue Recovered
-              </p>
-              <p className="mt-3 text-2xl font-bold text-emerald-600">
-                {formatCurrency(summary.totalActualRecovery)}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Recovery Rate
-              </p>
-              <p className="mt-3 text-2xl font-bold text-indigo-600">
-                {summary.recoveryRate}%
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                AI Confidence
-              </p>
-              <p className="mt-3 text-2xl font-bold text-purple-600">
-                {(incident.confidence * 100).toFixed(0)}%
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Root cause + AI decision */}
-        <section className="mt-6 grid gap-6 lg:grid-cols-2">
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-600">
-                <AlertTriangle size={20} />
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-red-600">
-                  Root Cause Analysis
-                </p>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Failure Diagnosis
-                </h2>
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-xl bg-slate-50 p-5">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Dominant Failure Reason
-              </p>
-
-              <p className="mt-2 text-lg font-semibold text-slate-900">
-                {incident.rootCause ?? "Unknown"}
-              </p>
-
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                The system detected a payment failure pattern and
-                identified the dominant failure reason before selecting
-                a recovery strategy.
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-                <BrainCircuit size={20} />
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-indigo-600">
-                  AI Decision Engine
-                </p>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Recovery Strategy
-                </h2>
-              </div>
-            </div>
-
-            {decision ? (
-              <>
-                <div className="mt-6 flex items-center justify-between rounded-xl bg-indigo-50 p-5">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">
-                      Recommended Action
-                    </p>
-                    <p className="mt-2 text-lg font-bold text-indigo-700">
-                      {decision.action}
-                    </p>
-                  </div>
-
-                  <ShieldCheck
-                    size={28}
-                    className="text-indigo-500"
-                  />
-                </div>
-
-                <p className="mt-4 text-sm leading-6 text-slate-500">
-                  {decision.reason}
-                </p>
-
-                <div className="mt-5 grid grid-cols-3 gap-3">
-                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">
-                      Max Retries
-                    </p>
-                    <p className="mt-1 font-semibold text-slate-800">
-                      {decision.boundaries.maxRetries}
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">
-                      Approval
-                    </p>
-                    <p className="mt-1 font-semibold text-slate-800">
-                      {decision.boundaries.requiresHumanApproval
-                        ? "Required"
-                        : "Not Required"}
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">
-                      Daily Limit
-                    </p>
-                    <p className="mt-1 font-semibold text-slate-800">
-                      {decision.boundaries.dailyActionLimit}
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="mt-6 rounded-xl bg-slate-50 p-5">
-                <p className="text-sm text-slate-500">
-                  No AI recovery decision was recorded for this incident.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Parent recovery */}
-        <section className="mt-6">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-indigo-600">
-                  Recovery Orchestration
-                </p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">
-                  Recovery Execution
-                </h2>
-              </div>
-
-              {parentAction && (
                 <span
-                  className={`w-fit rounded-full border px-3 py-1.5 text-xs font-semibold ${statusStyle(
-                    parentAction.status
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClasses(
+                    incident.status
                   )}`}
                 >
-                  {parentAction.status}
+                  {incident.status}
                 </span>
+              </div>
+
+              <p className="mt-2 text-sm text-slate-500">
+                Post-incident analysis and recovery execution
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                incidentId &&
+                loadIncident(incidentId)
+              }
+              className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
+            >
+              <RefreshCw size={16} />
+              Refresh
+            </button>
+          </div>
+
+          {/* Alerts */}
+
+          {message && (
+            <div className="mt-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              <CheckCircle2 size={18} />
+              {message}
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <XCircle size={18} />
+              {error}
+            </div>
+          )}
+
+          {/* Metrics */}
+
+          <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">
+                Revenue At Risk
+              </p>
+              <p className="mt-2 text-2xl font-bold">
+                {formatCurrency(
+                  incident.revenueAtRisk
+                )}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">
+                Recovered Revenue
+              </p>
+              <p className="mt-2 text-2xl font-bold text-emerald-600">
+                {formatCurrency(
+                  data.summary
+                    .totalActualRecovery
+                )}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">
+                Recovery Rate
+              </p>
+              <p className="mt-2 text-2xl font-bold">
+                {data.summary.recoveryRate}%
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">
+                AI Confidence
+              </p>
+              <p className="mt-2 text-2xl font-bold text-indigo-600">
+                {(
+                  (incident.confidence ??
+                    0) * 100
+                ).toFixed(0)}
+                %
+              </p>
+            </div>
+          </section>
+
+          <section className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+
+            {/* Root Cause */}
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                  <Brain size={20} />
+                </div>
+
+                <div>
+                  <h2 className="font-semibold">
+                    Root Cause Analysis
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    AI-generated failure classification
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-xl border border-indigo-100 bg-indigo-50/60 p-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500">
+                  Detected Root Cause
+                </p>
+
+                <p className="mt-2 text-lg font-bold text-indigo-800">
+                  {incident.rootCause ??
+                    "UNKNOWN"}
+                </p>
+
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  {incident.description ??
+                    "Payment failure pattern detected by RevenueAI."}
+                </p>
+              </div>
+
+              <div className="mt-6 flex items-start gap-3 text-sm text-slate-500">
+                <Clock3
+                  size={17}
+                  className="mt-0.5"
+                />
+
+                <div>
+                  <p className="font-medium text-slate-700">
+                    Incident detected
+                  </p>
+
+                  <p className="mt-1">
+                    {formatDate(
+                      incident.createdAt
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Decision */}
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-50 text-purple-600">
+                  <Sparkles size={20} />
+                </div>
+
+                <div>
+                  <h2 className="font-semibold">
+                    AI Decision Engine
+                  </h2>
+
+                  <p className="text-sm text-slate-500">
+                    Recommended recovery strategy
+                  </p>
+                </div>
+              </div>
+
+              {data.decision ? (
+                <>
+                  <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Recommended Action
+                    </p>
+
+                    <p className="mt-2 text-xl font-bold text-slate-900">
+                      {data.decision.action.replaceAll(
+                        "_",
+                        " "
+                      )}
+                    </p>
+
+                    <p className="mt-3 text-sm leading-6 text-slate-600">
+                      {data.decision.reason}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <p className="text-xs text-slate-500">
+                        Max Retries
+                      </p>
+
+                      <p className="mt-1 font-semibold">
+                        {
+                          data.decision
+                            .boundaries
+                            .maxRetries
+                        }
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <p className="text-xs text-slate-500">
+                        Approval
+                      </p>
+
+                      <p className="mt-1 font-semibold">
+                        {data.decision
+                          .boundaries
+                          .requiresHumanApproval
+                          ? "Required"
+                          : "Not required"}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-6 rounded-xl bg-slate-50 p-5 text-sm text-slate-500">
+                  Decision data is not available.
+                </div>
               )}
             </div>
+          </section>
 
-            {parentAction ? (
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs text-slate-500">
-                    Recovery Type
-                  </p>
-                  <p className="mt-2 font-semibold text-slate-800">
-                    {parentAction.type}
-                  </p>
-                </div>
+          {/* Recovery Action */}
 
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs text-slate-500">
-                    Expected Recovery
-                  </p>
-                  <p className="mt-2 font-semibold text-slate-800">
-                    {formatCurrency(parentAction.expectedRecovery)}
-                  </p>
-                </div>
+          <section className="mt-6">
+            <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-sm">
 
-                <div className="rounded-xl bg-emerald-50 p-4">
-                  <p className="text-xs text-emerald-600">
-                    Actual Recovery
-                  </p>
-                  <p className="mt-2 font-semibold text-emerald-700">
-                    {formatCurrency(parentAction.actualRecovery)}
-                  </p>
-                </div>
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
 
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs text-slate-500">
-                    Retry Count
-                  </p>
-                  <p className="mt-2 font-semibold text-slate-800">
-                    {parentAction.retryCount} /{" "}
-                    {parentAction.maxRetries}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <p className="mt-6 text-sm text-slate-500">
-                No recovery action was created for this incident.
-              </p>
-            )}
-          </div>
-        </section>
+                <div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                      <RefreshCw size={20} />
+                    </div>
 
-        {/* Child actions */}
-        <section className="mt-6 pb-10">
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-200 p-6 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-indigo-600">
-                  Individual Recovery Results
-                </p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">
-                  Payment-Level Recovery
-                </h2>
-              </div>
+                    <div>
+                      <h2 className="font-semibold">
+                        Recovery Execution
+                      </h2>
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-600">
-                {childActions.length} Payments
-              </div>
-            </div>
+                      <p className="text-sm text-slate-500">
+                        Execute the AI-approved recovery strategy
+                      </p>
+                    </div>
+                  </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">
-                      Payment
-                    </th>
-                    <th className="px-6 py-4 font-semibold">
-                      Status
-                    </th>
-                    <th className="px-6 py-4 font-semibold">
-                      Expected
-                    </th>
-                    <th className="px-6 py-4 font-semibold">
-                      Recovered
-                    </th>
-                    <th className="px-6 py-4 font-semibold">
-                      Retries
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {childActions.map((action: any) => (
-                    <tr
-                      key={action.id}
-                      className="border-b border-slate-100 last:border-0 transition hover:bg-slate-50"
-                    >
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-slate-800">
-                          {action.paymentId
-                            ? `${action.paymentId.slice(0, 12)}...`
-                            : "Unknown"}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-400">
-                          {action.type}
-                        </p>
-                      </td>
-
-                      <td className="px-6 py-4">
+                  {actionableRecovery ? (
+                    <div className="mt-5">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${statusStyle(
-                            action.status
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClasses(
+                            actionableRecovery.status
                           )}`}
                         >
-                          {action.status === "SUCCESS" ? (
-                            <CheckCircle2 size={13} />
-                          ) : action.status === "FAILED" ? (
-                            <XCircle size={13} />
-                          ) : (
-                            <Clock3 size={13} />
-                          )}
-
-                          {action.status}
-                        </span>
-                      </td>
-
-                      <td className="px-6 py-4 font-medium text-slate-700">
-                        {formatCurrency(action.expectedRecovery)}
-                      </td>
-
-                      <td className="px-6 py-4 font-semibold">
-                        <span
-                          className={
-                            action.status === "SUCCESS"
-                              ? "text-emerald-600"
-                              : "text-slate-400"
+                          {
+                            actionableRecovery.status
                           }
-                        >
-                          {formatCurrency(action.actualRecovery)}
                         </span>
-                      </td>
 
-                      <td className="px-6 py-4">
-                        <span className="font-medium text-slate-700">
-                          {action.retryCount}
+                        <span className="text-sm text-slate-500">
+                          {
+                            actionableRecovery.type
+                          }
                         </span>
-                        <span className="text-slate-400">
-                          {" "}
-                          / {action.maxRetries}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </div>
 
-            {childActions.length === 0 && (
-              <div className="p-10 text-center">
-                <p className="font-medium text-slate-700">
-                  No individual recovery actions
-                </p>
+                      <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+                        {
+                          actionableRecovery.reason ??
+                          "AI recommended a controlled recovery attempt."
+                        }
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-5 text-sm text-slate-500">
+                      No pending recovery action requires execution.
+                    </p>
+                  )}
+                </div>
+
+                {actionableRecovery && (
+                  <div className="shrink-0">
+                    <button
+                      type="button"
+                      disabled={
+                        recoveryLoading
+                      }
+                      onClick={() =>
+                        startRecovery(
+                          actionableRecovery
+                        )
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-3.5 text-sm font-semibold text-black shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {recoveryLoading ? (
+                        <>
+                          <Loader2
+                            size={18}
+                            className="animate-spin"
+                          />
+                          Opening Checkout...
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard
+                            size={18}
+                          />
+                          Start Recovery
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </section>
 
-        {/* Footer navigation */}
-        <div className="flex justify-center pb-12">
-          <Link
-            href="/incidents"
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 shadow-sm transition hover:border-indigo-200 hover:text-indigo-600"
-          >
-            View All Incidents
-            <ArrowRight size={16} />
-          </Link>
+              {actionableRecovery && (
+                <div className="mt-6 grid gap-4 border-t border-slate-100 pt-6 sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Expected Recovery
+                    </p>
+
+                    <p className="mt-1 font-semibold">
+                      {formatCurrency(
+                        actionableRecovery.expectedRecovery
+                      )}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Attempts
+                    </p>
+
+                    <p className="mt-1 font-semibold">
+                      {
+                        actionableRecovery.retryCount
+                      }{" "}
+                      /{" "}
+                      {
+                        actionableRecovery.maxRetries
+                      }
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Razorpay Order
+                    </p>
+
+                    <p className="mt-1 truncate font-mono text-xs font-medium">
+                      {
+                        actionableRecovery.razorpayReference ??
+                        "Not created"
+                      }
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Payment Recovery Table */}
+
+          <section className="mt-6 pb-10">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+              <div className="border-b border-slate-200 p-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                    <CreditCard size={19} />
+                  </div>
+
+                  <div>
+                    <h2 className="font-semibold">
+                      Payment-Level Recovery
+                    </h2>
+
+                    <p className="text-sm text-slate-500">
+                      Individual recovery attempts linked to this incident
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-slate-100 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-6 py-4 font-medium">
+                        Payment
+                      </th>
+
+                      <th className="px-6 py-4 font-medium">
+                        Amount
+                      </th>
+
+                      <th className="px-6 py-4 font-medium">
+                        Action
+                      </th>
+
+                      <th className="px-6 py-4 font-medium">
+                        Status
+                      </th>
+
+                      <th className="px-6 py-4 font-medium">
+                        Recovered
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {data.childActions.map(
+                      (action) => (
+                        <tr
+                          key={action.id}
+                          className="hover:bg-slate-50"
+                        >
+                          <td className="px-6 py-4">
+                            <p className="font-medium text-slate-800">
+                              {action.paymentId ??
+                                "—"}
+                            </p>
+
+                            <p className="mt-1 font-mono text-xs text-slate-400">
+                              {action.id}
+                            </p>
+                          </td>
+
+                          <td className="px-6 py-4 font-medium">
+                            {formatCurrency(
+                              action.expectedRecovery
+                            )}
+                          </td>
+
+                          <td className="px-6 py-4">
+                            <span className="text-slate-600">
+                              {action.type.replaceAll(
+                                "_",
+                                " "
+                              )}
+                            </span>
+                          </td>
+
+                          <td className="px-6 py-4">
+                            <span
+                              className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(
+                                action.status
+                              )}`}
+                            >
+                              {action.status}
+                            </span>
+                          </td>
+
+                          <td className="px-6 py-4 font-semibold text-emerald-600">
+                            {formatCurrency(
+                              action.actualRecovery
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+
+                    {data.childActions
+                      .length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-6 py-10 text-center text-sm text-slate-500"
+                        >
+                          No payment-level recovery actions yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          {/* Footer */}
+
+          <div className="pb-10 text-center text-xs text-slate-400">
+            RevenueAI · Razorpay Test Mode · Recovery Intelligence
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </>
   );
 }

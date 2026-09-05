@@ -1,29 +1,49 @@
 import { Router } from "express";
 
-import { executeRecoveryAction } from "../services/recovery.service";
 import prisma from "../lib/prisma";
+
 import { createRazorpayOrder } from "../services/razorpay.service";
+
+import { executeRecoveryAction } from "../services/recovery.service";
 
 const router = Router();
 
-// ==========================================
-// EXECUTE RECOVERY ACTION
-// ==========================================
+/*
+|--------------------------------------------------------------------------
+| CREATE RAZORPAY RECOVERY ORDER
+|--------------------------------------------------------------------------
+|
+| A failed Razorpay payment cannot be retried by modifying
+| the original payment. We create a NEW Razorpay order.
+|
+*/
 
 router.post("/:actionId/create-order", async (req, res) => {
   try {
     const { actionId } = req.params;
 
-    const action =
-      await prisma.recoveryAction.findUnique({
-        where: {
-          id: actionId,
-        },
-        include: {
-          payment: true,
-          incident: true,
-        },
+    if (!actionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Recovery action ID is required",
       });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 1. FIND RECOVERY ACTION
+    |--------------------------------------------------------------------------
+    */
+
+    const action = await prisma.recoveryAction.findUnique({
+      where: {
+        id: actionId,
+      },
+      include: {
+        payment: true,
+        incident: true,
+      },
+    });
 
     if (!action) {
       return res.status(404).json({
@@ -31,6 +51,12 @@ router.post("/:actionId/create-order", async (req, res) => {
         message: "Recovery action not found",
       });
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 2. PAYMENT REQUIRED
+    |--------------------------------------------------------------------------
+    */
 
     if (!action.payment) {
       return res.status(400).json({
@@ -40,121 +66,175 @@ router.post("/:actionId/create-order", async (req, res) => {
       });
     }
 
-    if (
-      action.status === "SUCCESS" ||
-      action.status === "EXECUTING"
-    ) {
+    /*
+    |--------------------------------------------------------------------------
+    | 3. SUCCESSFUL ACTION CANNOT BE STARTED AGAIN
+    |--------------------------------------------------------------------------
+    */
+
+    if (action.status === "SUCCESS") {
       return res.status(400).json({
         success: false,
         message:
-          `Recovery action cannot be started. Current status: ${action.status}`,
+          "Recovery action is already successful",
       });
     }
 
     /*
-     * Don't create multiple Razorpay orders
-     * for the same recovery action.
-     */
-    if (action.razorpayReference) {
+    |--------------------------------------------------------------------------
+    | 4. IF ALREADY EXECUTING, RETURN EXISTING ORDER
+    |--------------------------------------------------------------------------
+    |
+    | This prevents duplicate Razorpay orders if the user
+    | accidentally clicks the button twice.
+    |
+    */
+
+    if (
+      action.status === "EXECUTING" &&
+      action.razorpayReference
+    ) {
       return res.status(200).json({
         success: true,
-        message:
-          "Recovery order already exists",
-        orderId:
-          action.razorpayReference,
-        keyId:
-          process.env.RAZORPAY_KEY_ID,
+        message: "Recovery order already exists",
+        order: {
+          id: action.razorpayReference,
+          amount: action.payment.amount,
+          currency: action.payment.currency,
+        },
+        recoveryAction: action,
+        keyId: process.env.RAZORPAY_KEY_ID,
       });
     }
 
     /*
-     * Mark recovery as executing.
-     */
-    await prisma.recoveryAction.update({
-      where: {
-        id: action.id,
-      },
-      data: {
-        status: "EXECUTING",
-      },
-    });
+    |--------------------------------------------------------------------------
+    | 5. CHECK RETRY LIMIT
+    |--------------------------------------------------------------------------
+    */
 
-    /*
-     * Create a NEW Razorpay order.
-     */
-    const order =
-      await createRazorpayOrder({
-        amount: action.payment.amount,
-        currency:
-          action.payment.currency,
-        receipt:
-          `recovery_${action.id}`.slice(
-            0,
-            40
-          ),
-        notes: {
-          recoveryActionId:
-            action.id,
-
-          originalPaymentId:
-            action.payment.id,
-
-          incidentId:
-            action.incidentId,
-        },
-      });
-
-    /*
-     * Store the new Razorpay order
-     * against the recovery action.
-     */
-    const updatedAction =
+    if (action.retryCount >= action.maxRetries) {
       await prisma.recoveryAction.update({
         where: {
           id: action.id,
         },
         data: {
-          razorpayReference:
-            order.id,
+          status: "ESCALATED",
+        },
+      });
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "Maximum recovery attempts reached",
+      });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 6. CREATE A NEW RAZORPAY ORDER
+    |--------------------------------------------------------------------------
+    |
+    | IMPORTANT:
+    | If the previous attempt FAILED, we intentionally create
+    | a completely NEW Razorpay order.
+    |
+    */
+
+    const order = await createRazorpayOrder({
+      amount: action.payment.amount,
+
+      currency: action.payment.currency,
+
+      receipt: `recovery_${action.id}_${Date.now()}`.slice(
+        0,
+        40
+      ),
+
+      notes: {
+        recoveryActionId: action.id,
+        originalPaymentId: action.payment.id,
+        incidentId: action.incidentId,
+        retryAttempt: String(
+          action.retryCount + 1
+        ),
+      },
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | 7. STORE NEW RAZORPAY ORDER
+    |--------------------------------------------------------------------------
+    */
+
+    const updatedAction =
+      await prisma.recoveryAction.update({
+        where: {
+          id: action.id,
+        },
+
+        data: {
+          status: "EXECUTING",
+
+          razorpayReference: order.id,
         },
       });
 
     /*
-     * Audit trail.
-     */
+    |--------------------------------------------------------------------------
+    | 8. AUDIT LOG
+    |--------------------------------------------------------------------------
+    */
+
     await prisma.auditLog.create({
       data: {
-        eventType:
-          "RECOVERY_ORDER_CREATED",
+        eventType: "RECOVERY_ORDER_CREATED",
 
         message:
           `Recovery order ${order.id} created for failed payment ${action.payment.id}.`,
 
         actor: "SYSTEM",
 
-        merchantId:
-          action.incident
-            ? action.incident.merchantId
-            : action.payment.merchantId,
+        merchantId: action.payment.merchantId,
 
-        incidentId:
-          action.incidentId,
+        incidentId: action.incidentId,
 
         metadata: {
-          recoveryActionId:
-            action.id,
+          recoveryActionId: action.id,
 
-          originalPaymentId:
-            action.payment.id,
+          originalPaymentId: action.payment.id,
 
-          originalAmount:
-            action.payment.amount,
+          originalAmount: action.payment.amount,
 
-          razorpayOrderId:
-            order.id,
+          razorpayOrderId: order.id,
+
+          retryAttempt:
+            action.retryCount + 1,
         },
       },
     });
+
+    console.log(
+      `🔄 Recovery order created: ${order.id}`
+    );
+
+    console.log(
+      `💳 Recovery amount: ₹${(
+        Number(order.amount) / 100
+      ).toFixed(2)}`
+    );
+
+    console.log(
+      `🔁 Recovery attempt: ${
+        action.retryCount + 1
+      }/${action.maxRetries}`
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | 9. RETURN CHECKOUT DATA
+    |--------------------------------------------------------------------------
+    */
 
     return res.status(201).json({
       success: true,
@@ -164,15 +244,15 @@ router.post("/:actionId/create-order", async (req, res) => {
 
       order: {
         id: order.id,
+
         amount: order.amount,
+
         currency: order.currency,
       },
 
-      recoveryAction:
-        updatedAction,
+      recoveryAction: updatedAction,
 
-      keyId:
-        process.env.RAZORPAY_KEY_ID,
+      keyId: process.env.RAZORPAY_KEY_ID,
     });
   } catch (error) {
     console.error(
@@ -182,6 +262,7 @@ router.post("/:actionId/create-order", async (req, res) => {
 
     return res.status(500).json({
       success: false,
+
       message:
         error instanceof Error
           ? error.message
@@ -189,6 +270,18 @@ router.post("/:actionId/create-order", async (req, res) => {
     });
   }
 });
+
+/*
+|--------------------------------------------------------------------------
+| LEGACY / INTERNAL RECOVERY EXECUTION
+|--------------------------------------------------------------------------
+|
+| Kept for the existing orchestrator/child recovery
+| architecture.
+|
+| The Razorpay frontend flow uses /create-order.
+|
+*/
 
 router.post("/:actionId/execute", async (req, res) => {
   try {
@@ -201,14 +294,19 @@ router.post("/:actionId/execute", async (req, res) => {
       });
     }
 
-    const result = await executeRecoveryAction(actionId);
+    const result =
+      await executeRecoveryAction(actionId);
 
     return res.status(200).json(result);
   } catch (error) {
-    console.error("Recovery execution error:", error);
+    console.error(
+      "Recovery execution error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
+
       message:
         error instanceof Error
           ? error.message
