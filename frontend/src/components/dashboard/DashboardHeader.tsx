@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { ArrowRight, History } from "lucide-react";
+
 interface DashboardHeaderProps {
   title?: string;
   subtitle?: string;
@@ -27,12 +30,25 @@ export default function DashboardHeader({
         </div>
       </div>
 
-      <div className="flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Incident History */}
+        <Link
+          href="/incidents"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
+        >
+          <History size={16} />
+          Incident History
+          <ArrowRight size={15} />
+        </Link>
 
-        <span className="text-sm font-medium text-emerald-700">
-          System Operational
-        </span>
+        {/* System Status */}
+        <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+
+          <span className="text-sm font-medium text-emerald-700">
+            System Operational
+          </span>
+        </div>
       </div>
     </div>
   );
