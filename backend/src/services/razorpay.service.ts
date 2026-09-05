@@ -3,6 +3,12 @@ import Razorpay from "razorpay";
 const keyId = process.env.RAZORPAY_KEY_ID;
 const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
+console.log("Razorpay Key ID:", keyId);
+console.log(
+  "Razorpay Secret Loaded:",
+  keySecret ? "YES" : "NO"
+);
+
 if (!keyId || !keySecret) {
   throw new Error(
     "RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be defined"
