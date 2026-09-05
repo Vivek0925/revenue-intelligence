@@ -6,6 +6,12 @@ RevenueAI is an AI-powered revenue intelligence platform that detects payment fa
 
 Instead of treating failed payments as isolated transactions, RevenueAI turns payment failures into actionable incidents and closes the loop from **failure detection → AI analysis → recovery → verification**.
 
+## 🎥 Product Demo
+
+> See RevenueAI in action — from payment failure detection to AI-driven recovery and successful revenue recovery.
+
+[![RevenueAI Demo](https://img.youtube.com/vi/6bzFHeXLLPc/maxresdefault.jpg)](https://youtu.be/6bzFHeXLLPc)
+
 ---
 
 ## 🚀 The Problem
