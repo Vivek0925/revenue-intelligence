@@ -23,12 +23,12 @@ async function getIncidents() {
   return response.json();
 }
 
-function formatCurrency(amount: number) {
+function formatCurrency(amount: number | null | undefined) {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 0,
-  }).format(amount);
+  }).format((amount ?? 0) / 100);
 }
 
 function formatDate(date: string) {

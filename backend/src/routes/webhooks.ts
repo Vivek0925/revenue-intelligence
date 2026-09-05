@@ -810,28 +810,16 @@ router.post(
           |----------------------------------------------------------------------
           */
 
-          incident =
-            await prisma.incident.update({
-              where: {
-                id: incident.id,
-              },
-
-              data: {
-                severity,
-
-                revenueAtRisk,
-
-                confidence: 0.92,
-
-                rootCause:
-                  classifiedRootCause,
-
-                description:
-                  `${failedPayments.length} payment failures detected with a ${failureRate.toFixed(
-                    2
-                  )}% failure rate.`,
-              },
-            });
+          incident = await prisma.incident.update({
+  where: {
+    id: incident.id,
+  },
+  data: {
+    confidence: 0.92,
+    rootCause: classifiedRootCause,
+    severity,
+  },
+});
 
           console.log(
             `🔄 Incident updated: ${incident.id}`

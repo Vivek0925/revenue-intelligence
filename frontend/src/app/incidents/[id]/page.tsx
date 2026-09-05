@@ -50,6 +50,7 @@ interface RecoveryAction {
   maxRetries: number;
   razorpayReference: string | null;
   paymentId: string | null;
+  parentActionId: string | null;
 }
 
 interface Incident {
@@ -411,14 +412,7 @@ export default function IncidentDetailPage({
         action.status === "FAILED") &&
       action.type === "RETRY_PAYMENT" &&
       action.retryCount < action.maxRetries
-  ) ??
-  (data.parentAction &&
-  (data.parentAction.status === "PENDING" ||
-    data.parentAction.status === "FAILED") &&
-  data.parentAction.retryCount <
-    data.parentAction.maxRetries
-    ? data.parentAction
-    : null);
+  ) ?? null;
 
   return (
     <>
