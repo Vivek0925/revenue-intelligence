@@ -12,13 +12,22 @@ import recoveryAggregatorRoutes from "./routes/recovery-aggregator";
 import dashboardRoutes from "./routes/dashboard";
 import incidentsRoutes from "./routes/incidents";
 import paymentsRouter from "./routes/payments";
+import webhooksRouter from "./routes/webhooks";
 
 dotenv.config();
 
 const app = express();
 
 app.use(cors());
+
+app.use(
+  "/api/webhooks",
+  express.raw({ type: "application/json" }),
+  webhooksRouter
+);
+
 app.use(express.json());
+
 app.use("/api/seed", seedRouter);
 app.use("/api/analyze", analyzeRouter);
 app.use("/api/recovery", recoveryRoutes);
