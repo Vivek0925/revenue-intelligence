@@ -11,6 +11,7 @@ import childRecoveryRoutes from "./routes/child-recovery";
 import recoveryAggregatorRoutes from "./routes/recovery-aggregator";
 import dashboardRoutes from "./routes/dashboard";
 import incidentsRoutes from "./routes/incidents";
+import paymentsRouter from "./routes/payments";
 
 dotenv.config();
 
@@ -26,6 +27,7 @@ app.use("/api/child-recovery", childRecoveryRoutes);
 app.use("/api/recovery-aggregate", recoveryAggregatorRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/incidents", incidentsRoutes);
+app.use("/api/payments", paymentsRouter);
 
 app.get("/", (req, res) => {
   res.json({

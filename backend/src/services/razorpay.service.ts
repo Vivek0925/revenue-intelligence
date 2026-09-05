@@ -23,8 +23,8 @@ export async function createRazorpayOrder(params: {
   const order = await razorpay.orders.create({
     amount: params.amount,
     currency: params.currency ?? "INR",
-    receipt: params.receipt,
-    notes: params.notes,
+    ...(params.receipt !== undefined && { receipt: params.receipt }),
+    ...(params.notes !== undefined && { notes: params.notes }),
   });
 
   return order;
