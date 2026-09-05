@@ -1,667 +1,228 @@
 # RevenueAI
 
-### AI-Powered Payment Failure Detection & Revenue Recovery
+**AI-powered payment failure detection & revenue recovery**
 
-RevenueAI is an AI-powered payment recovery platform that detects failed payments, identifies their root cause, calculates revenue at risk, and recommends the safest recovery action.
+Most payment systems treat a failed transaction as the end of the story: `SUCCESS` or `FAILED`, and that's it. But merchants are the ones left holding the questions — why did it fail, is this a one-off or the start of a bigger problem, how much money is actually at risk, and is there anything worth doing about it?
 
-Instead of treating a failed payment as the end of a transaction, RevenueAI turns it into an actionable incident and closes the loop when the revenue is recovered.
+RevenueAI was built to answer those questions instead of ignoring them. It watches for payment failures coming through Razorpay, figures out what actually went wrong, groups related failures into incidents, and decides whether to retry automatically, wait, or hand it off to a human. If recovery makes sense, it can generate a link for the customer to complete the payment — and it tracks the whole thing through to resolution.
 
-> **Detect the failure. Understand the problem. Recover the revenue.**
+**Demo:**
 
----
-
-## 🎥 Demo
-
-Watch the demo: [https://youtu.be/6bzFHeXLLPc](https://youtu.be/6bzFHeXLLPc)
+[![RevenueAI Demo](https://img.youtube.com/vi/6bzFHeXLLPc/maxresdefault.jpg)](https://youtu.be/6bzFHeXLLPc)
 
 ---
 
-## 🚨 Problem
+## The problem, basically
 
-Payment failures are common, but most payment systems stop at:
-
-```
-Payment → SUCCESS / FAILED
-```
-
-Merchants still need to know:
-
-- Why did the payment fail?
-- Is it an isolated failure or a larger problem?
-- How much revenue is at risk?
-- Should the payment be retried?
-- Should a human intervene?
-- Was the lost revenue eventually recovered?
-
-RevenueAI is built to answer these questions and turn failed payments into actionable recovery workflows.
+Payment failures happen all the time, and in most systems they just... disappear. Nobody's asking why the payment failed, whether it's isolated, how much revenue is actually sitting at risk, or whether a retry would even help. That's the gap RevenueAI is trying to close — turning a failed payment from a dead end into something actionable.
 
 ---
 
-## 💡 Solution
+## How it flows
 
 ```
-Customer Payment
-       ↓
-Razorpay Checkout
-       ↓
-Payment Failure
-       ↓
-Webhook
-       ↓
-Failure Classification
-       ↓
-Incident Detection
-       ↓
-Revenue At Risk
-       ↓
-AI Decision Engine
-       ↓
-Recovery / Human Escalation
-       ↓
-Customer Recovery Link
-       ↓
-Razorpay Checkout
-       ↓
-Success Webhook
-       ↓
-Recovery Verification
-       ↓
-Incident Resolved
-       ↓
-Revenue Recovered
+Customer pays → Razorpay Checkout → Payment fails → Webhook fires
+   → Failure gets classified → Incident created (if it's part of a pattern)
+   → Revenue at risk calculated → AI decides what to do
+   → Retry, wait, or escalate to a human
+   → If recovery makes sense, a link goes to the customer
+   → Customer pays → Success webhook → Incident resolved
 ```
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
-RevenueAI uses a webhook-driven architecture. The frontend communicates with the backend through REST APIs, Razorpay handles payment processing, and payment events are sent back to the backend through webhooks.
+It's a fairly standard webhook-driven setup — nothing exotic, just wired together carefully.
 
 ```
-┌──────────────────┐
-│     CUSTOMER     │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│     RAZORPAY     │
-│     CHECKOUT     │
-└────────┬─────────┘
-         │
-  Payment / Webhook
-         │
-         ▼
-┌──────────────────────────────────────┐
-│          NODE.JS + EXPRESS            │
-│                                        │
-│  Payment API → Webhook Handler        │
-│                         │              │
-│                         ▼              │
-│                 Failure Analysis      │
-│                         │              │
-│                         ▼              │
-│                 Incident Engine       │
-│                         │              │
-│                         ▼              │
-│                 AI Decision Engine    │
-│                         │              │
-│                         ▼              │
-│                 Recovery Engine       │
-└───────────────┬────────────────────────┘
-                │
-      ┌─────────┴─────────┐
-      ▼                   ▼
-┌──────────────┐   ┌──────────────────┐
-│ PostgreSQL   │   │ Customer Recovery│
-│ + Prisma     │   │ Page             │
-└──────────────┘   └────────┬─────────┘
-                            │
-                            ▼
-                   ┌──────────────────┐
-                   │ Razorpay Checkout│
-                   └──────────────────┘
-
-                ▲
-                │ REST API
-                │
-      ┌─────────┴─────────┐
-      │   NEXT.JS FRONTEND │
-      │                    │
-      │ Dashboard          │
-      │ Incidents          │
-      │ Payments           │
-      │ Test Payment       │
-      │ Recovery           │
-      └────────────────────┘
+CUSTOMER → RAZORPAY CHECKOUT → (payment / webhook)
+                    │
+                    ▼
+        ┌───────────────────────────┐
+        │     NODE.JS + EXPRESS     │
+        │  Payment API → Webhook    │
+        │  → Failure Analysis       │
+        │  → Incident Engine        │
+        │  → AI Decision Engine     │
+        │  → Recovery Engine        │
+        └─────────┬─────────┬───────┘
+                  ▼         ▼
+        PostgreSQL      Customer Recovery Page
+        + Prisma           → Razorpay Checkout
+                  ▲
+                  │ REST API
+        NEXT.JS FRONTEND
+        (Dashboard, Incidents, Payments, Test Payment, Recovery)
 ```
 
-### Architecture Components
+The **frontend** (Next.js) is where merchants actually see and manage things — dashboard, incident views, payment history, a test-payment page, and the customer-facing recovery page.
 
-**Next.js Frontend**
-- Merchant dashboard
-- Incident management
-- Payment views
-- Test payments
-- Customer recovery page
+The **backend** (Express) does the real work: creating and verifying payments, handling Razorpay webhooks, analyzing failures, running the AI decision logic, kicking off recovery actions, and logging everything for audit purposes.
 
-**Node.js + Express**
-- Payment creation
-- Payment verification
-- Razorpay webhooks
-- Failure analysis
-- Incident detection
-- AI decisions
-- Recovery actions
-- Audit logging
-
-**PostgreSQL + Prisma**
-- Merchants
-- Payments
-- Incidents
-- Recovery actions
-- Policies
-- Audit logs
-
-**Razorpay**
-- Checkout
-- Orders
-- Payments
-- Webhooks
-- Payment verification
-
-**AI Decision Engine**
-- Evaluates incident context
-- Recommends recovery actions
-- Applies recovery safety boundaries
+**Postgres + Prisma** hold merchants, payments, incidents, recovery actions, policies, and audit logs. **The AI decision engine** looks at incident context and recommends what to do next, staying inside whatever safety limits are configured.
 
 ---
 
-## 🔍 Failure Intelligence
+## Turning failures into something useful
 
-RevenueAI converts payment failures into structured root causes:
+Every failed payment gets classified into a root cause: `BANK_TIMEOUT`, `INSUFFICIENT_FUNDS`, `PAYMENT_DECLINED`, `AUTHENTICATION_FAILURE`, or a generic `PAYMENT_FAILURE`. When several failures look related, they get grouped into a single incident instead of being treated as separate problems — a burst of similar failures might get flagged as a `PAYMENT_FAILURE_SPIKE`, for example.
 
-- `BANK_TIMEOUT`
-- `INSUFFICIENT_FUNDS`
-- `PAYMENT_DECLINED`
-- `AUTHENTICATION_FAILURE`
-- `PAYMENT_FAILURE`
+A few numbers the system tracks:
 
-Related failures are grouped into incidents instead of treating every failed payment as a separate problem.
-
-**Example:**
-
-```
-Payment A ─┐
-Payment B ─┼──► PAYMENT_FAILURE_SPIKE
-Payment C ─┘
-```
-
-### Failure Rate
-
-```
-Failed Payments
-─────────────── × 100
-Total Payments
-```
-
-### Revenue At Risk
-
-```
-Revenue At Risk = Sum of Failed Payment Amounts
-```
-
-### Recovery Rate
-
-```
-Recovered Revenue
-───────────────── × 100
-Revenue At Risk
-```
+- **Failure rate** — failed payments ÷ total payments × 100
+- **Revenue at risk** — the total value of failed payments
+- **Recovery rate** — recovered revenue ÷ revenue at risk × 100
 
 ---
 
-## 🤖 AI Decision Engine
+## The decision engine
 
-The decision engine evaluates:
+This is the part deciding what happens next. It looks at the root cause, how severe the incident is, its confidence in that read, how much revenue is on the line, and whether retry limits or approval requirements apply. From there it lands on one of: `RETRY_PAYMENT`, `WAIT_AND_RETRY`, `ESCALATE_TO_HUMAN`, or `NO_ACTION`.
 
-- Root cause
-- Incident severity
-- Confidence
-- Revenue at risk
-- Retry limits
-- Human approval requirements
-
-**Possible decisions:**
-
-- `RETRY_PAYMENT`
-- `WAIT_AND_RETRY`
-- `ESCALATE_TO_HUMAN`
-- `NO_ACTION`
-
-Higher-risk incidents can instead be escalated for human approval.
-
-Recovery actions use safety boundaries such as maximum retries, human approval requirements, and action limits.
+It's intentionally not fully autonomous — anything above a certain risk threshold gets kicked to a human instead of retried blindly, and there are hard limits on retries so it can't spiral.
 
 ---
 
-## 🔗 Customer Recovery
+## Getting the customer to pay again
 
-When recovery is appropriate, the merchant can generate a customer-facing recovery link.
-
-```
-Merchant
-   ↓
-Generate Recovery Link
-   ↓
-Customer Opens Link
-   ↓
-RevenueAI Creates Recovery Order
-   ↓
-Razorpay Checkout
-   ↓
-Customer Completes Payment
-   ↓
-Razorpay Webhook
-   ↓
-Recovery Verified
-   ↓
-RecoveryAction = SUCCESS
-   ↓
-Incident = RESOLVED
-```
-
-This creates a complete failure-to-recovery loop.
+When a recovery attempt makes sense, the merchant can generate a link and send it to the customer. That link creates a fresh recovery order, sends the customer through Razorpay Checkout again, and once the payment succeeds, the webhook marks the recovery action as successful and closes out the incident. It's basically a clean way to say "hey, that payment didn't go through — try again here" without the merchant having to manually recreate anything.
 
 ---
 
-## ⚡ Webhook Processing
+## What happens on each webhook
 
-### Failed Payment
+**When a payment fails:** find the payment, mark it failed, classify why, recalculate the failure rate and revenue at risk, create or update the relevant incident, run the AI decision, and create a recovery action if warranted.
 
-```
-Razorpay
-   │
-   │ payment.failed
-   ▼
-Webhook Handler
-   │
-   ├── Find Payment
-   ├── Mark FAILED
-   ├── Classify Root Cause
-   ├── Calculate Failure Rate
-   ├── Calculate Revenue At Risk
-   ├── Create / Update Incident
-   ├── Run AI Decision
-   └── Create Recovery Action
-```
-
-### Successful Recovery
-
-```
-Razorpay
-   │
-   │ payment.captured
-   ▼
-Webhook Handler
-   │
-   ├── Find Recovery Action
-   ├── Verify Payment
-   ├── Mark Recovery SUCCESS
-   ├── Update Actual Recovery
-   ├── Resolve Incident
-   └── Update Dashboard
-```
+**When a recovery payment succeeds:** find the recovery action, verify the payment, mark it successful, update the actual recovered amount, resolve the incident, and let the dashboard pick up the change.
 
 ---
 
-## 🗃️ Database
+## Data model
 
-Core Prisma models:
+Core Prisma models: `Merchant`, `Payment`, `Incident`, `RecoveryAction`, `Policy`, `AuditLog`.
 
-```
-Merchant
-Payment
-Incident
-RecoveryAction
-Policy
-AuditLog
-```
-
-**Relationships:**
-
-```
-Merchant
-   ├── Payments
-   ├── Incidents
-   │      ├── Recovery Actions
-   │      └── Audit Logs
-   └── Policies
-
-Payment
-   └── Recovery Actions
-
-RecoveryAction
-   ├── Incident
-   ├── Payment
-   └── Child Recovery Actions
-```
+A merchant has payments, incidents, and policies. Each incident can have multiple recovery actions and audit log entries. A payment can have its own recovery actions, and a recovery action links back to its incident, its payment, and can even have follow-up (child) recovery actions if the first attempt didn't stick.
 
 ---
 
-## 📈 Dashboard
+## Dashboard
 
-The merchant dashboard provides a view of payment health and recovery. It includes:
-
-- Revenue At Risk
-- Recovered Revenue
-- Recovery Rate
-- Failed Payments
-- Active Incidents
-- Recovery Actions
-- Recovery Status
-
-The dashboard periodically refreshes data so changes from payment and recovery events appear automatically.
+Nothing fancy — just the numbers a merchant actually cares about: revenue at risk, revenue recovered, recovery rate, failed payments, active incidents, and the status of ongoing recovery actions. It refreshes on its own so you're not stuck hitting F5 during a demo.
 
 ---
 
-## 🛠️ Tech Stack
+## Stack
 
-| Layer | Technology |
+| Layer | What's used |
 |---|---|
-| Frontend | Next.js, React, TypeScript |
-| Styling | Tailwind CSS |
+| Frontend | Next.js, React, TypeScript, Tailwind |
 | Backend | Node.js, Express |
-| Database | PostgreSQL |
-| ORM | Prisma |
-| Payments | Razorpay |
-| Webhooks | Razorpay Webhooks |
+| Database | PostgreSQL + Prisma |
+| Payments | Razorpay (Checkout, Orders, Webhooks) |
 | API | REST |
-| AI | AI Decision Engine |
+| AI | Custom decision engine |
 
 ---
 
-## 📁 Project Structure
+## Project layout
 
 ```
 RevenueAI/
-│
-├── frontend/
-│   └── src/
-│       ├── app/
-│       │   ├── dashboard/
-│       │   ├── incidents/
-│       │   │   └── [id]/
-│       │   ├── payments/
-│       │   ├── test-payment/
-│       │   └── recover/
-│       │       └── [actionId]/
-│       │
-│       └── components/
-│
+├── frontend/src/
+│   ├── app/
+│   │   ├── dashboard/
+│   │   ├── incidents/[id]/
+│   │   ├── payments/
+│   │   ├── test-payment/
+│   │   └── recover/[actionId]/
+│   └── components/
 ├── backend/
 │   ├── src/
-│   │   ├── routes/
-│   │   │   ├── payments.ts
-│   │   │   ├── recovery.ts
-│   │   │   ├── incidents.ts
-│   │   │   └── webhooks.ts
-│   │   ├── services/
-│   │   │   ├── razorpay.service.ts
-│   │   │   └── decision.service.ts
-│   │   ├── lib/
-│   │   │   └── prisma.ts
+│   │   ├── routes/        (payments, recovery, incidents, webhooks)
+│   │   ├── services/      (razorpay.service.ts, decision.service.ts)
+│   │   ├── lib/prisma.ts
 │   │   └── server.ts
-│   │
-│   ├── prisma/
-│   │   └── schema.prisma
-│   │
+│   ├── prisma/schema.prisma
 │   └── scripts/
-│
 └── README.md
 ```
 
 ---
 
-## 🚀 Getting Started
+## Running it locally
 
-### Prerequisites
+You'll need Node.js, npm, a Postgres instance, a Razorpay test-mode account, and something like ngrok to expose your local backend for webhooks.
 
-- Node.js
-- npm
-- PostgreSQL
-- Razorpay Test Mode account
-- Public tunnel for local webhook testing
-
-### Backend
-
+**Backend:**
 ```bash
 cd backend
 npm install
 ```
 
-Create `backend/.env`:
-
+Add a `.env` file:
 ```env
 DATABASE_URL=your_postgresql_connection_string
-
 RAZORPAY_KEY_ID=your_razorpay_test_key
 RAZORPAY_KEY_SECRET=your_razorpay_test_secret
 RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
 ```
 
-Generate Prisma Client and run migrations:
-
+Then:
 ```bash
 npx prisma generate
 npx prisma migrate dev
-```
-
-Start the backend:
-
-```bash
 npm run dev
 ```
+Runs on `http://localhost:5000`.
 
-Backend: `http://localhost:5000`
-
-### Frontend
-
-Open another terminal:
-
+**Frontend:**
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+Runs on `http://localhost:3000`.
 
-Frontend: `http://localhost:3000`
+**Webhooks:** point Razorpay at `https://YOUR_PUBLIC_URL/api/webhooks/razorpay` and turn on `payment.failed`, `payment.captured`, `payment.authorized`, and `order.paid`. Test mode only, obviously.
 
----
-
-## 🔔 Razorpay Webhook Setup
-
-Configure the Razorpay webhook endpoint:
-
-```
-https://YOUR_PUBLIC_URL/api/webhooks/razorpay
-```
-
-Enable:
-
-- `payment.failed`
-- `payment.captured`
-- `payment.authorized`
-- `order.paid`
-
-For local development, expose port 5000 using a public tunnel.
-
-Use Razorpay Test Mode for development and demonstrations.
-
----
-
-## 🧪 Demo Flow
-
-```
-Create Test Payment
-        ↓
-Payment Fails
-        ↓
-Razorpay Webhook
-        ↓
-Incident Created
-        ↓
-AI Recovery Decision
-        ↓
-Generate Recovery Link
-        ↓
-Customer Pays
-        ↓
-Success Webhook
-        ↓
-Recovery Verified
-        ↓
-Revenue Recovered
-```
-
----
-
-## 🧹 Reset Demo Data
-
-To start a fresh demonstration:
-
+**Resetting demo data**, if you need a clean slate between runs:
 ```bash
 cd backend
 npm run cleanup
 ```
-
-This clears:
-
-- Payments
-- Incidents
-- Recovery Actions
-- Audit Logs
-
-Merchant records are preserved.
+This wipes payments, incidents, recovery actions, and audit logs, but leaves merchant records alone.
 
 ---
 
-## 🔐 Security
+## Security notes
 
-RevenueAI includes:
-
-- Server-side Razorpay signature verification
-- Environment-based secrets
-- Webhook processing
-- Recovery retry limits
-- Human approval for high-risk actions
-- Razorpay-hosted payment collection
-
-RevenueAI does not directly store customer card information.
+Razorpay signatures are verified server-side, secrets live in environment variables, retries are capped, and anything high-risk needs human sign-off before it goes further. Card details never touch our servers — Razorpay handles all of that.
 
 ---
 
-## 🧠 Key Engineering Decisions
+## Why it's built this way
 
-**Webhook-driven architecture**
-Payment state is updated through Razorpay events instead of relying on manual status checks.
+A few decisions worth explaining:
 
-**Incident-based monitoring**
-Related payment failures are grouped into incidents to provide a broader view of payment problems.
+**Webhooks over polling** — payment state changes because Razorpay tells us, not because we're constantly checking.
 
-**Payment-level recovery**
-Recovery actions can be linked to the specific failed payment.
+**Grouping failures into incidents** — a single failed payment isn't that interesting on its own, but ten of them in ten minutes is a signal worth acting on.
 
-**Controlled automation**
-AI decisions are constrained by retry limits and human approval requirements.
+**Recovery tied to the actual payment** — every recovery action knows exactly which payment it's trying to fix, so nothing gets mixed up.
 
-**Customer recovery links**
-Merchants can send customers directly to a recovery checkout instead of manually recreating transactions.
+**Automation with guardrails** — the AI can act, but only within limits; anything risky goes to a person.
+
+**Recovery links instead of manual re-entry** — customers get a direct path back to checkout instead of the merchant having to recreate the transaction by hand.
 
 ---
 
-## 🔮 Future Improvements
+## What's next
 
-- Predict payment failures before they happen
-- Smarter retry timing
-- Alternative payment recommendations
-- Email / SMS / WhatsApp recovery
-- Multiple payment gateway support
-- Redis / BullMQ based background processing
-- Advanced revenue analytics
-- ML-based recovery probability
-- Gateway performance analytics
-- Proactive payment anomaly detection
+Things on the roadmap: predicting failures before they happen, smarter retry timing instead of fixed intervals, suggesting alternative payment methods, recovery via email/SMS/WhatsApp, support for gateways beyond Razorpay, background job processing with Redis/BullMQ, deeper analytics, and eventually a proper ML model for recovery probability instead of rule-based heuristics.
 
 ---
 
-## 🎯 Core Idea
+## License
 
-Traditional payment systems stop at:
-
-```
-Payment → SUCCESS / FAILED
-```
-
-RevenueAI continues:
-
-```
-Payment
-   ↓
-Failure
-   ↓
-Why?
-   ↓
-How much is at risk?
-   ↓
-What should we do?
-   ↓
-Can we recover it?
-   ↓
-Did recovery succeed?
-```
-
-**RevenueAI turns payment failures into recoverable revenue.**
-
----
-
-## 📍 Project Status
-
-RevenueAI currently demonstrates an end-to-end payment recovery workflow using Razorpay Test Mode:
-
-```
-Payment Creation
-       ↓
-Razorpay Checkout
-       ↓
-Payment Failure
-       ↓
-Webhook Detection
-       ↓
-Failure Classification
-       ↓
-Incident Creation
-       ↓
-Revenue At Risk
-       ↓
-AI Recovery Decision
-       ↓
-Recovery Action
-       ↓
-Recovery Link
-       ↓
-Customer Payment
-       ↓
-Recovery Webhook
-       ↓
-Recovery Verification
-       ↓
-Incident Resolution
-       ↓
-Recovered Revenue
-```
-
----
-
-## 📄 License
-
-Built as a hackathon project for demonstration and educational purposes.
+Built as a hackathon project, for demonstration and learning purposes.
