@@ -13,8 +13,8 @@ const router = Router();
 | CREATE RAZORPAY RECOVERY ORDER
 |--------------------------------------------------------------------------
 |
-| A failed Razorpay payment cannot be retried by modifying
-| the original payment. We create a NEW Razorpay order.
+| A failed Razorpay payment cannot be retried by modifying the original
+| payment. We create a NEW Razorpay order.
 |
 */
 
@@ -61,8 +61,7 @@ router.post("/:actionId/create-order", async (req, res) => {
     if (!action.payment) {
       return res.status(400).json({
         success: false,
-        message:
-          "Recovery action is not linked to a payment",
+        message: "Recovery action is not linked to a payment",
       });
     }
 
@@ -75,8 +74,7 @@ router.post("/:actionId/create-order", async (req, res) => {
     if (action.status === "SUCCESS") {
       return res.status(400).json({
         success: false,
-        message:
-          "Recovery action is already successful",
+        message: "Recovery action is already successful",
       });
     }
 
@@ -85,8 +83,8 @@ router.post("/:actionId/create-order", async (req, res) => {
     | 4. IF ALREADY EXECUTING, RETURN EXISTING ORDER
     |--------------------------------------------------------------------------
     |
-    | This prevents duplicate Razorpay orders if the user
-    | accidentally clicks the button twice.
+    | Prevents duplicate Razorpay orders if the user clicks the button
+    | multiple times.
     |
     */
 
@@ -97,12 +95,15 @@ router.post("/:actionId/create-order", async (req, res) => {
       return res.status(200).json({
         success: true,
         message: "Recovery order already exists",
+
         order: {
           id: action.razorpayReference,
           amount: action.payment.amount,
           currency: action.payment.currency,
         },
+
         recoveryAction: action,
+
         keyId: process.env.RAZORPAY_KEY_ID,
       });
     }
@@ -118,6 +119,7 @@ router.post("/:actionId/create-order", async (req, res) => {
         where: {
           id: action.id,
         },
+
         data: {
           status: "ESCALATED",
         },
@@ -125,25 +127,22 @@ router.post("/:actionId/create-order", async (req, res) => {
 
       return res.status(400).json({
         success: false,
-        message:
-          "Maximum recovery attempts reached",
+        message: "Maximum recovery attempts reached",
       });
     }
 
     /*
     |--------------------------------------------------------------------------
-    | 6. CREATE A NEW RAZORPAY ORDER
+    | 6. CREATE NEW RAZORPAY ORDER
     |--------------------------------------------------------------------------
     |
-    | IMPORTANT:
-    | If the previous attempt FAILED, we intentionally create
-    | a completely NEW Razorpay order.
+    | If the previous recovery attempt failed, we intentionally create
+    | a completely new Razorpay order.
     |
     */
 
     const order = await createRazorpayOrder({
       amount: action.payment.amount,
-
       currency: action.payment.currency,
 
       receipt: `recovery_${action.id}_${Date.now()}`.slice(
@@ -155,6 +154,7 @@ router.post("/:actionId/create-order", async (req, res) => {
         recoveryActionId: action.id,
         originalPaymentId: action.payment.id,
         incidentId: action.incidentId,
+
         retryAttempt: String(
           action.retryCount + 1
         ),
@@ -239,14 +239,11 @@ router.post("/:actionId/create-order", async (req, res) => {
     return res.status(201).json({
       success: true,
 
-      message:
-        "Recovery Razorpay order created",
+      message: "Recovery Razorpay order created",
 
       order: {
         id: order.id,
-
         amount: order.amount,
-
         currency: order.currency,
       },
 
@@ -276,8 +273,7 @@ router.post("/:actionId/create-order", async (req, res) => {
 | LEGACY / INTERNAL RECOVERY EXECUTION
 |--------------------------------------------------------------------------
 |
-| Kept for the existing orchestrator/child recovery
-| architecture.
+| Kept for the existing orchestrator/child recovery architecture.
 |
 | The Razorpay frontend flow uses /create-order.
 |

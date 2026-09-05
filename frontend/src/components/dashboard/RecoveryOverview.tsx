@@ -20,7 +20,7 @@ export default function RecoveryOverview({
       style: "currency",
       currency: "INR",
       maximumFractionDigits: 0,
-    }).format(amount);
+    }).format((amount ?? 0) / 100);
   };
 
   return (

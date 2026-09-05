@@ -3,7 +3,10 @@ import prisma from "../lib/prisma";
 
 const router = Router();
 
-function calculateRecoverySummary(actions: any[]) {
+function calculateRecoverySummary(
+  actions: any[],
+  revenueAtRisk: number,
+) {
   const successfulActions = actions.filter(
     (action) => action.status === "SUCCESS",
   );
@@ -27,14 +30,14 @@ function calculateRecoverySummary(actions: any[]) {
   );
 
   const recoveryRate =
-    totalExpectedRecovery > 0
-      ? Number(
-          (
-            (totalActualRecovery / totalExpectedRecovery) *
-            100
-          ).toFixed(2),
-        )
-      : 0;
+  revenueAtRisk > 0
+    ? Number(
+        (
+          (totalActualRecovery / revenueAtRisk) *
+          100
+        ).toFixed(2),
+      )
+    : 0;
 
   return {
     totalChildActions: actions.length,
@@ -156,6 +159,7 @@ router.get("/", async (_req, res) => {
 
       const summary = calculateRecoverySummary(
         recoveryActions,
+        incident.revenueAtRisk ?? 0,
       );
 
       return {
@@ -247,6 +251,7 @@ router.get("/:id", async (req, res) => {
 
     const summary = calculateRecoverySummary(
       recoveryActions,
+      incident.revenueAtRisk ?? 0,
     );
 
     const recoveryStatus = getRecoveryStatus(

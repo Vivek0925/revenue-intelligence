@@ -10,13 +10,11 @@ import {
 
 import { RecoveryActionType } from "../generated/prisma/client";
 
-import { createRazorpayOrder } from "../services/razorpay.service";
-
 const router = Router();
 
 /*
 |--------------------------------------------------------------------------
-| Configuration
+| CONFIGURATION
 |--------------------------------------------------------------------------
 */
 
@@ -24,11 +22,11 @@ const FAILURE_THRESHOLD = 10;
 
 /*
 |--------------------------------------------------------------------------
-| Failure classification
+| FAILURE CLASSIFICATION
 |--------------------------------------------------------------------------
 */
 
-function classifyFailureReason(reason: string) {
+function classifyFailureReason(reason: string): string {
   const normalized = reason.toLowerCase();
 
   if (
@@ -65,12 +63,12 @@ function classifyFailureReason(reason: string) {
 
 /*
 |--------------------------------------------------------------------------
-| Severity
+| SEVERITY
 |--------------------------------------------------------------------------
 */
 
 function determineSeverity(
-  failureRate: number
+  failureRate: number,
 ): "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" {
   if (failureRate >= 40) {
     return "CRITICAL";
@@ -80,24 +78,17 @@ function determineSeverity(
     return "HIGH";
   }
 
-  if (failureRate >= 10) {
-    return "MEDIUM";
-  }
-
-  return "LOW";
+  return "MEDIUM";
 }
 
 /*
 |--------------------------------------------------------------------------
-| AI → Database action
+| AI ACTION → DATABASE ACTION
 |--------------------------------------------------------------------------
 */
 
 const recoveryActionTypeMap: Partial<
-  Record<
-    RecoveryDecision["action"],
-    RecoveryActionType
-  >
+  Record<RecoveryDecision["action"], RecoveryActionType>
 > = {
   RETRY_PAYMENT:
     RecoveryActionType.RETRY_PAYMENT,
@@ -111,15 +102,15 @@ const recoveryActionTypeMap: Partial<
 
 /*
 |--------------------------------------------------------------------------
-| Webhook signature verification
+| WEBHOOK SIGNATURE VERIFICATION
 |--------------------------------------------------------------------------
 */
 
 function verifyWebhookSignature(
   rawBody: Buffer,
   signature: string,
-  secret: string
-) {
+  secret: string,
+): boolean {
   const expectedSignature = crypto
     .createHmac("sha256", secret)
     .update(rawBody)
@@ -127,12 +118,12 @@ function verifyWebhookSignature(
 
   const expected = Buffer.from(
     expectedSignature,
-    "utf8"
+    "utf8",
   );
 
   const received = Buffer.from(
     signature,
-    "utf8"
+    "utf8",
   );
 
   if (expected.length !== received.length) {
@@ -141,7 +132,7 @@ function verifyWebhookSignature(
 
   return crypto.timingSafeEqual(
     expected,
-    received
+    received,
   );
 }
 
@@ -151,242 +142,232 @@ function verifyWebhookSignature(
 |--------------------------------------------------------------------------
 */
 
-router.post(
-  "/razorpay",
-  async (req, res) => {
-    try {
-      /*
-      |--------------------------------------------------------------------------
-      | 1. VERIFY CONFIGURATION
-      |--------------------------------------------------------------------------
-      */
+router.post("/razorpay", async (req, res) => {
+  try {
+    /*
+    |--------------------------------------------------------------------------
+    | 1. WEBHOOK SECRET
+    |--------------------------------------------------------------------------
+    */
 
-      const signature = req.headers[
-        "x-razorpay-signature"
-      ] as string | undefined;
+    const webhookSecret =
+      process.env.RAZORPAY_WEBHOOK_SECRET;
 
-      const webhookSecret =
-        process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "RAZORPAY_WEBHOOK_SECRET is not configured",
+      });
+    }
 
-      if (!webhookSecret) {
-        return res.status(500).json({
-          success: false,
-          message:
-            "RAZORPAY_WEBHOOK_SECRET is not configured",
-        });
-      }
+    /*
+    |--------------------------------------------------------------------------
+    | 2. SIGNATURE
+    |--------------------------------------------------------------------------
+    */
 
-      if (!signature) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Missing Razorpay webhook signature",
-        });
-      }
+    const signature =
+      req.headers["x-razorpay-signature"] as
+        | string
+        | undefined;
 
-      /*
-      |--------------------------------------------------------------------------
-      | 2. RAW BODY
-      |--------------------------------------------------------------------------
-      */
+    if (!signature) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Missing Razorpay webhook signature",
+      });
+    }
 
-      const rawBody = req.body as Buffer;
+    /*
+    |--------------------------------------------------------------------------
+    | 3. RAW BODY
+    |--------------------------------------------------------------------------
+    */
 
-      if (!Buffer.isBuffer(rawBody)) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Webhook body must be raw",
-        });
-      }
+    const rawBody = req.body as Buffer;
 
-      /*
-      |--------------------------------------------------------------------------
-      | 3. VERIFY SIGNATURE
-      |--------------------------------------------------------------------------
-      */
+    if (!Buffer.isBuffer(rawBody)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Webhook body must be raw",
+      });
+    }
 
-      const valid =
-        verifyWebhookSignature(
-          rawBody,
-          signature,
-          webhookSecret
-        );
+    /*
+    |--------------------------------------------------------------------------
+    | 4. VERIFY SIGNATURE
+    |--------------------------------------------------------------------------
+    */
 
-      if (!valid) {
-        console.warn(
-          "⚠️ Invalid Razorpay webhook signature"
-        );
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid webhook signature",
-        });
-      }
-
-      /*
-      |--------------------------------------------------------------------------
-      | 4. PARSE EVENT
-      |--------------------------------------------------------------------------
-      */
-
-      const event = JSON.parse(
-        rawBody.toString("utf8")
+    const signatureValid =
+      verifyWebhookSignature(
+        rawBody,
+        signature,
+        webhookSecret,
       );
 
-      console.log(
-        `📩 Razorpay webhook received: ${event.event}`
+    if (!signatureValid) {
+      console.warn(
+        "⚠️ Invalid Razorpay webhook signature",
       );
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid webhook signature",
+      });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 5. PARSE EVENT
+    |--------------------------------------------------------------------------
+    */
+
+    const event = JSON.parse(
+      rawBody.toString("utf8"),
+    );
+
+    console.log(
+      `📩 Razorpay webhook received: ${event.event}`,
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT CAPTURED
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+      event.event ===
+      "payment.captured"
+    ) {
+      const payment =
+        event.payload?.payment?.entity;
+
+      if (!payment) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid payment.captured payload",
+        });
+      }
 
       /*
       |--------------------------------------------------------------------------
-      | PAYMENT CAPTURED
+      | CHECK RECOVERY PAYMENT FIRST
+      |--------------------------------------------------------------------------
+      |
+      | A recovery payment uses a NEW Razorpay order.
+      | The order ID is stored in RecoveryAction.razorpayReference.
+      |
+      */
+
+      const capturedRecoveryAction =
+        await prisma.recoveryAction.findFirst({
+          where: {
+            razorpayReference:
+              payment.order_id,
+          },
+
+          include: {
+            payment: true,
+            incident: true,
+          },
+        });
+
+      /*
+      |--------------------------------------------------------------------------
+      | RECOVERY PAYMENT SUCCESS
       |--------------------------------------------------------------------------
       */
 
-      if (
-        event.event ===
-        "payment.captured"
-      ) {
-        const payment =
-          event.payload?.payment?.entity;
+      if (capturedRecoveryAction) {
+        console.log(
+          `🔄 Recovery payment captured: ${payment.id}`,
+        );
 
-          const recoveryAction =
-  await prisma.recoveryAction.findFirst({
-    where: {
-      razorpayReference:
-        payment.order_id,
-    },
-    include: {
-      payment: true,
-    },
-  });
+        /*
+        |--------------------------------------------------------------------------
+        | DUPLICATE WEBHOOK
+        |--------------------------------------------------------------------------
+        */
 
-  if (recoveryAction) {
-  const originalPayment =
-    recoveryAction.payment;
-
-  if (!originalPayment) {
-    return res.status(200).json({
-      success: true,
-      received: true,
-    });
-  }
-
-  /*
-   * Recovery payment succeeded.
-   */
-
-  await prisma.recoveryAction.update({
-    where: {
-      id: recoveryAction.id,
-    },
-    data: {
-      status: "SUCCESS",
-
-      actualRecovery:
-        payment.amount,
-
-      razorpayReference:
-        payment.order_id,
-
-      retryCount: {
-        increment: 1,
-      },
-    },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      eventType:
-        "RECOVERY_SUCCESS",
-
-      message:
-        `Recovery payment ${payment.id} captured successfully. ₹${(
-          payment.amount / 100
-        ).toFixed(2)} recovered.`,
-
-      actor: "RAZORPAY",
-
-      merchantId:
-        originalPayment.merchantId,
-
-      incidentId:
-        recoveryAction.incidentId,
-
-      metadata: {
-        recoveryActionId:
-          recoveryAction.id,
-
-        originalPaymentId:
-          originalPayment.id,
-
-        razorpayPaymentId:
-          payment.id,
-
-        razorpayOrderId:
-          payment.order_id,
-
-        recoveredAmount:
-          payment.amount,
-      },
-    },
-  });
-
-  console.log(
-    `💰 RECOVERY SUCCESS: ₹${(
-      payment.amount / 100
-    ).toFixed(2)}`
-  );
-
-  return res.status(200).json({
-    success: true,
-    received: true,
-    recovery: true,
-    recoveredAmount:
-      payment.amount,
-  });
-}
-
-        if (!payment) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Invalid payment.captured payload",
-          });
-        }
-
-        const existingPayment =
-          await prisma.payment.findFirst({
-            where: {
-              razorpayOrderId:
-                payment.order_id,
-            },
-          });
-
-        if (!existingPayment) {
-          console.warn(
-            "⚠️ Payment record not found:",
-            payment.order_id
+        if (
+          capturedRecoveryAction.status ===
+          "SUCCESS"
+        ) {
+          console.log(
+            `ℹ️ Recovery already processed: ${capturedRecoveryAction.id}`,
           );
 
           return res.status(200).json({
             success: true,
             received: true,
+            recovery: true,
+            duplicate: true,
           });
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Update payment
+        | MARK RECOVERY SUCCESS
         |--------------------------------------------------------------------------
         */
 
-        const updatedPayment =
+        const successfulRecovery =
+          await prisma.recoveryAction.update({
+            where: {
+              id:
+                capturedRecoveryAction.id,
+            },
+
+            data: {
+              status: "SUCCESS",
+
+              actualRecovery:
+                Number(payment.amount),
+
+              retryCount: {
+                increment: 1,
+              },
+            },
+          });
+
+        /*
+        |--------------------------------------------------------------------------
+        | RESOLVE INCIDENT
+        |--------------------------------------------------------------------------
+        */
+
+        await prisma.incident.update({
+          where: {
+            id:
+              capturedRecoveryAction.incidentId,
+          },
+
+          data: {
+            status: "RESOLVED",
+          },
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | UPDATE ASSOCIATED PAYMENT IF IT EXISTS
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+          capturedRecoveryAction.payment
+        ) {
           await prisma.payment.update({
             where: {
-              id: existingPayment.id,
+              id:
+                capturedRecoveryAction
+                  .payment!.id,
             },
 
             data: {
@@ -401,161 +382,327 @@ router.post(
               failureReason: null,
             },
           });
+        }
 
         /*
         |--------------------------------------------------------------------------
-        | Audit
+        | AUDIT
         |--------------------------------------------------------------------------
         */
 
         await prisma.auditLog.create({
           data: {
             eventType:
-              "PAYMENT_CAPTURED",
+              "RECOVERY_SUCCESS",
 
             message:
-              `Razorpay payment ${payment.id} was captured successfully.`,
+              `Recovery payment ${payment.id} captured successfully. ₹${(
+                Number(payment.amount) /
+                100
+              ).toFixed(2)} recovered.`,
 
             actor: "RAZORPAY",
 
             merchantId:
-              existingPayment.merchantId,
+              capturedRecoveryAction
+                .incident
+                .merchantId,
+
+            incidentId:
+              capturedRecoveryAction
+                .incidentId,
 
             metadata: {
+              recoveryActionId:
+                capturedRecoveryAction.id,
+
+              originalPaymentId:
+                capturedRecoveryAction
+                  .paymentId,
+
               razorpayPaymentId:
                 payment.id,
 
               razorpayOrderId:
                 payment.order_id,
 
-              amount:
-                payment.amount,
-
-              method:
-                payment.method ?? null,
+              recoveredAmount:
+                Number(payment.amount),
             },
           },
         });
 
         console.log(
-          `✅ Payment captured: ${payment.id}`
+          `💰 RECOVERY SUCCESS: ₹${(
+            Number(payment.amount) /
+            100
+          ).toFixed(2)}`,
+        );
+
+        console.log(
+          `✅ Incident resolved: ${capturedRecoveryAction.incidentId}`,
         );
 
         return res.status(200).json({
           success: true,
           received: true,
-          payment: updatedPayment,
+          recovery: true,
+
+          recoveredAmount:
+            Number(payment.amount),
+
+          recoveryAction:
+            successfulRecovery,
+
+          incidentStatus:
+            "RESOLVED",
         });
       }
 
       /*
       |--------------------------------------------------------------------------
-      | PAYMENT FAILED
+      | NORMAL PAYMENT CAPTURE
+      |--------------------------------------------------------------------------
+      */
+
+      const existingPayment =
+        await prisma.payment.findFirst({
+          where: {
+            razorpayOrderId:
+              payment.order_id,
+          },
+        });
+
+      if (!existingPayment) {
+        console.warn(
+          "⚠️ Payment record not found:",
+          payment.order_id,
+        );
+
+        return res.status(200).json({
+          success: true,
+          received: true,
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | DUPLICATE CAPTURE PROTECTION
       |--------------------------------------------------------------------------
       */
 
       if (
-        event.event ===
-        "payment.failed"
+        existingPayment.status ===
+          "CAPTURED" &&
+        existingPayment.razorpayPaymentId ===
+          payment.id
       ) {
-        const payment =
-          event.payload?.payment?.entity;
+        return res.status(200).json({
+          success: true,
+          received: true,
+          duplicate: true,
+        });
+      }
 
-        if (!payment) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Invalid payment.failed payload",
-          });
-        }
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE NORMAL PAYMENT
+      |--------------------------------------------------------------------------
+      */
+
+      const capturedPayment =
+        await prisma.payment.update({
+          where: {
+            id: existingPayment.id,
+          },
+
+          data: {
+            razorpayPaymentId:
+              payment.id,
+
+            status: "CAPTURED",
+
+            method:
+              payment.method ?? null,
+
+            failureReason: null,
+          },
+        });
+
+      /*
+      |--------------------------------------------------------------------------
+      | AUDIT
+      |--------------------------------------------------------------------------
+      */
+
+      await prisma.auditLog.create({
+        data: {
+          eventType:
+            "PAYMENT_CAPTURED",
+
+          message:
+            `Razorpay payment ${payment.id} was captured successfully.`,
+
+          actor: "RAZORPAY",
+
+          merchantId:
+            existingPayment.merchantId,
+
+          metadata: {
+            razorpayPaymentId:
+              payment.id,
+
+            razorpayOrderId:
+              payment.order_id,
+
+            amount:
+              Number(payment.amount),
+
+            method:
+              payment.method ?? null,
+          },
+        },
+      });
+
+      console.log(
+        `✅ Payment captured: ${payment.id}`,
+      );
+
+      return res.status(200).json({
+        success: true,
+        received: true,
+        payment: capturedPayment,
+      });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT FAILED
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+      event.event ===
+      "payment.failed"
+    ) {
+      const payment =
+        event.payload?.payment?.entity;
+
+      if (!payment) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid payment.failed payload",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | CHECK RECOVERY PAYMENT FAILURE FIRST
+      |--------------------------------------------------------------------------
+      |
+      | IMPORTANT:
+      | Use a DIFFERENT variable name here.
+      |
+      */
+
+      const failedRecoveryAction =
+        await prisma.recoveryAction.findFirst({
+          where: {
+            razorpayReference:
+              payment.order_id,
+          },
+
+          include: {
+            payment: true,
+            incident: true,
+          },
+        });
+
+      /*
+      |--------------------------------------------------------------------------
+      | RECOVERY PAYMENT FAILED
+      |--------------------------------------------------------------------------
+      */
+
+      if (failedRecoveryAction) {
+        console.log(
+          `❌ Recovery payment failed: ${payment.id}`,
+        );
 
         /*
         |--------------------------------------------------------------------------
-        | 5. FIND PAYMENT
-        |--------------------------------------------------------------------------
-        */
-
-        const existingPayment =
-          await prisma.payment.findFirst({
-            where: {
-              razorpayOrderId:
-                payment.order_id,
-            },
-          });
-
-        if (!existingPayment) {
-          console.warn(
-            "⚠️ Payment record not found:",
-            payment.order_id
-          );
-
-          return res.status(200).json({
-            success: true,
-            received: true,
-          });
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | 6. DUPLICATE PROTECTION
+        | DUPLICATE PROTECTION
         |--------------------------------------------------------------------------
         */
 
         if (
-          existingPayment.status ===
+          failedRecoveryAction.status ===
             "FAILED" &&
-          existingPayment.razorpayPaymentId ===
-            payment.id
+          failedRecoveryAction.retryCount >
+            0
         ) {
           console.log(
-            `ℹ️ Duplicate failure webhook ignored: ${payment.id}`
+            `ℹ️ Duplicate recovery failure ignored: ${payment.id}`,
           );
 
           return res.status(200).json({
             success: true,
             received: true,
+            recovery: true,
             duplicate: true,
           });
         }
 
         /*
         |--------------------------------------------------------------------------
-        | 7. FAILURE REASON
+        | FAILURE REASON
         |--------------------------------------------------------------------------
         */
 
-        const failureReason =
+        const recoveryFailureReason =
           payment.error_description ??
           payment.error_reason ??
-          "Payment failed";
-
-        const classifiedRootCause =
-          classifyFailureReason(
-            failureReason
-          );
-
-        console.log(
-          `❌ Payment failed: ${payment.id}`
-        );
-
-        console.log(
-          `Reason: ${failureReason}`
-        );
-
-        console.log(
-          `🧠 Classified root cause: ${classifiedRootCause}`
-        );
+          "Recovery payment failed";
 
         /*
         |--------------------------------------------------------------------------
-        | 8. UPDATE PAYMENT
+        | MARK RECOVERY FAILED
         |--------------------------------------------------------------------------
         */
 
-        const failedPayment =
+        const failedRecovery =
+          await prisma.recoveryAction.update({
+            where: {
+              id:
+                failedRecoveryAction.id,
+            },
+
+            data: {
+              status: "FAILED",
+
+              actualRecovery: 0,
+
+              retryCount: {
+                increment: 1,
+              },
+            },
+          });
+
+        /*
+        |--------------------------------------------------------------------------
+        | UPDATE RECOVERY PAYMENT
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+          failedRecoveryAction.payment
+        ) {
           await prisma.payment.update({
             where: {
-              id: existingPayment.id,
+              id:
+                failedRecoveryAction
+                  .payment!.id,
             },
 
             data: {
@@ -567,30 +714,45 @@ router.post(
               method:
                 payment.method ?? null,
 
-              failureReason,
+              failureReason:
+                recoveryFailureReason,
             },
           });
+        }
 
         /*
         |--------------------------------------------------------------------------
-        | 9. AUDIT PAYMENT FAILURE
+        | AUDIT
         |--------------------------------------------------------------------------
         */
 
         await prisma.auditLog.create({
           data: {
             eventType:
-              "PAYMENT_FAILED",
+              "RECOVERY_FAILED",
 
             message:
-              `Razorpay payment ${payment.id} failed: ${failureReason}`,
+              `Recovery payment ${payment.id} failed: ${recoveryFailureReason}`,
 
             actor: "RAZORPAY",
 
             merchantId:
-              existingPayment.merchantId,
+              failedRecoveryAction
+                .incident
+                .merchantId,
+
+            incidentId:
+              failedRecoveryAction
+                .incidentId,
 
             metadata: {
+              recoveryActionId:
+                failedRecoveryAction.id,
+
+              originalPaymentId:
+                failedRecoveryAction
+                  .paymentId,
+
               razorpayPaymentId:
                 payment.id,
 
@@ -598,455 +760,317 @@ router.post(
                 payment.order_id,
 
               amount:
-                payment.amount,
+                Number(payment.amount),
 
-              failureReason,
+              failureReason:
+                recoveryFailureReason,
 
-              classifiedRootCause,
+              retryCount:
+                failedRecovery.retryCount,
+
+              maxRetries:
+                failedRecovery.maxRetries,
             },
           },
         });
 
-        /*
-        |--------------------------------------------------------------------------
-        | 10. MERCHANT ANALYSIS
-        |--------------------------------------------------------------------------
-        */
-
-        const merchantId =
-          existingPayment.merchantId;
-
-        const failedPayments =
-          await prisma.payment.findMany({
-            where: {
-              merchantId,
-              status: "FAILED",
-            },
-
-            orderBy: {
-              createdAt: "desc",
-            },
-          });
-
-        const totalPayments =
-          await prisma.payment.count({
-            where: {
-              merchantId,
-            },
-          });
-
-        const failureRate =
-          totalPayments > 0
-            ? (failedPayments.length /
-                totalPayments) *
-              100
-            : 0;
-
-        /*
-        |--------------------------------------------------------------------------
-        | 11. REVENUE AT RISK
-        |--------------------------------------------------------------------------
-        |
-        | This is merchant-wide risk.
-        | The individual payment amount remains
-        | available separately as failedPayment.amount.
-        |
-        */
-
-        const revenueAtRisk =
-          failedPayments.reduce(
-            (total, item) =>
-              total + item.amount,
-            0
-          );
-
         console.log(
-          `📊 Merchant failure rate: ${failureRate.toFixed(
-            2
-          )}%`
-        );
-
-        console.log(
-          `💳 Current failed payment: ₹${(
-            failedPayment.amount / 100
-          ).toFixed(2)}`
-        );
-
-        console.log(
-          `💰 Total revenue at risk: ₹${(
-            revenueAtRisk / 100
-          ).toFixed(2)}`
+          `🔁 Recovery attempt ${failedRecovery.retryCount}/${failedRecovery.maxRetries}`,
         );
 
         /*
         |--------------------------------------------------------------------------
-        | 12. INCIDENT THRESHOLD
+        | ESCALATE AFTER MAX RETRIES
         |--------------------------------------------------------------------------
         */
 
         if (
-          failureRate <
-          FAILURE_THRESHOLD
+          failedRecovery.retryCount >=
+          failedRecovery.maxRetries
         ) {
+          await prisma.recoveryAction.update({
+            where: {
+              id:
+                failedRecovery.id,
+            },
+
+            data: {
+              status: "ESCALATED",
+            },
+          });
+
           console.log(
-            "ℹ️ Failure threshold not reached"
+            `🚨 Recovery escalated: ${failedRecovery.id}`,
           );
 
           return res.status(200).json({
             success: true,
             received: true,
+            recovery: true,
 
-            paymentStatus:
-              "FAILED",
-
-            incidentCreated:
-              false,
-
-            analysis: {
-              totalPayments,
-
-              failedPayments:
-                failedPayments.length,
-
-              failureRate: Number(
-                failureRate.toFixed(2)
-              ),
-
-              currentPaymentAmount:
-                failedPayment.amount,
-
-              revenueAtRisk,
-
-              rootCause:
-                classifiedRootCause,
+            recoveryAction: {
+              ...failedRecovery,
+              status: "ESCALATED",
             },
+
+            retryCount:
+              failedRecovery.retryCount,
+
+            maxRetries:
+              failedRecovery.maxRetries,
           });
         }
 
         /*
         |--------------------------------------------------------------------------
-        | 13. SEVERITY
-        |--------------------------------------------------------------------------
-        */
-
-        const severity =
-          determineSeverity(
-            failureRate
-          );
-
-        /*
-        |--------------------------------------------------------------------------
-        | 14. FIND ACTIVE INCIDENT
-        |--------------------------------------------------------------------------
-        */
-
-        let incident =
-          await prisma.incident.findFirst({
-            where: {
-              merchantId,
-
-              type:
-                "PAYMENT_FAILURE_SPIKE",
-
-              status: {
-                in: [
-                  "OPEN",
-                  "INVESTIGATING",
-                  "ACTION_REQUIRED",
-                ],
-              },
-            },
-
-            orderBy: {
-              createdAt: "desc",
-            },
-          });
-
-        let isNewIncident = false;
-
-        /*
-        |--------------------------------------------------------------------------
-        | 15. CREATE OR UPDATE INCIDENT
-        |--------------------------------------------------------------------------
-        */
-
-        if (!incident) {
-          incident =
-            await prisma.incident.create({
-              data: {
-                title:
-                  "Payment Failure Spike Detected",
-
-                description:
-                  `${failedPayments.length} payment failures detected with a ${failureRate.toFixed(
-                    2
-                  )}% failure rate.`,
-
-                type:
-                  "PAYMENT_FAILURE_SPIKE",
-
-                severity,
-
-                revenueAtRisk,
-
-                confidence: 0.92,
-
-                rootCause:
-                  classifiedRootCause,
-
-                merchantId,
-              },
-            });
-
-          isNewIncident = true;
-
-          console.log(
-            `🚨 Incident created: ${incident.id}`
-          );
-        } else {
-          /*
-          |----------------------------------------------------------------------
-          | Update active incident with latest information
-          |----------------------------------------------------------------------
-          */
-
-          incident = await prisma.incident.update({
-  where: {
-    id: incident.id,
-  },
-  data: {
-    confidence: 0.92,
-    rootCause: classifiedRootCause,
-    severity,
-  },
-});
-
-          console.log(
-            `🔄 Incident updated: ${incident.id}`
-          );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | 16. AI DECISION
-        |--------------------------------------------------------------------------
-        */
-
-        const decision =
-          decideRecoveryAction({
-            type: incident.type,
-
-            severity:
-              incident.severity,
-
-            confidence:
-              incident.confidence ?? 0,
-
-            revenueAtRisk:
-              incident.revenueAtRisk ?? 0,
-
-            rootCause:
-              incident.rootCause ??
-              "UNKNOWN",
-          });
-
-        console.log(
-          `🤖 AI decision: ${decision.action}`
-        );
-
-        console.log(
-          `Reason: ${decision.reason}`
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | 17. MAP ACTION
-        |--------------------------------------------------------------------------
-        */
-
-        const mappedAction =
-          recoveryActionTypeMap[
-            decision.action
-          ];
-
-        const shouldAutomate =
-          !decision.boundaries
-            .requiresHumanApproval;
-
-        /*
-        |--------------------------------------------------------------------------
-        | 18. FIND EXISTING ACTION
-        |--------------------------------------------------------------------------
-        |
-        | Important:
-        | We now search for an action belonging to
-        | THIS failed payment, not merely the incident.
-        |
-        */
-
-        let recoveryAction =
-          await prisma.recoveryAction.findFirst({
-            where: {
-              incidentId:
-                incident.id,
-
-              paymentId:
-                failedPayment.id,
-            },
-
-            orderBy: {
-              createdAt: "desc",
-            },
-          });
-
-        /*
-        |--------------------------------------------------------------------------
-        | 19. CREATE RECOVERY ACTION
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-          !recoveryAction &&
-          mappedAction
-        ) {
-          recoveryAction =
-            await prisma.recoveryAction.create({
-              data: {
-                type:
-                  mappedAction,
-
-                status:
-                  decision
-                    .boundaries
-                    .requiresHumanApproval
-                    ? "PENDING"
-                    : "PENDING",
-
-                reason:
-                  decision.reason,
-
-                expectedRecovery:
-                  shouldAutomate
-                    ? failedPayment.amount
-                    : 0,
-
-                actualRecovery:
-                  0,
-
-                retryCount: 0,
-
-                maxRetries:
-                  decision
-                    .boundaries
-                    .maxRetries,
-
-                incidentId:
-                  incident.id,
-
-                paymentId:
-                  failedPayment.id,
-              },
-            });
-
-          console.log(
-            `🔄 Recovery action created: ${recoveryAction.id}`
-          );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | 20. AUDIT INCIDENT
-        |--------------------------------------------------------------------------
-        */
-
-        await prisma.auditLog.create({
-          data: {
-            eventType:
-              isNewIncident
-                ? "INCIDENT_DETECTED"
-                : "INCIDENT_UPDATED",
-
-            message:
-              `Payment failure intelligence processed. AI decision: ${decision.action}`,
-
-            actor: "SYSTEM",
-
-            merchantId,
-
-            incidentId:
-              incident.id,
-
-            metadata: {
-              razorpayPaymentId:
-                payment.id,
-
-              currentPaymentAmount:
-                failedPayment.amount,
-
-              failureRate,
-
-              failedPayments:
-                failedPayments.length,
-
-              revenueAtRisk,
-
-              rootCause:
-                classifiedRootCause,
-
-              aiDecision: {
-                action:
-                  decision.action,
-
-                reason:
-                  decision.reason,
-
-                mappedDatabaseAction:
-                  mappedAction ??
-                  "NO_ACTION",
-
-                shouldAutomate,
-
-                maxRetries:
-                  decision
-                    .boundaries
-                    .maxRetries,
-
-                requiresHumanApproval:
-                  decision
-                    .boundaries
-                    .requiresHumanApproval,
-
-                dailyActionLimit:
-                  decision
-                    .boundaries
-                    .dailyActionLimit,
-              },
-            },
-          },
-        });
-
-        /*
-        |--------------------------------------------------------------------------
-        | 21. RETURN
+        | RECOVERY CAN BE RETRIED
         |--------------------------------------------------------------------------
         */
 
         return res.status(200).json({
           success: true,
+          received: true,
+          recovery: true,
 
+          recoveryAction:
+            failedRecovery,
+
+          retryCount:
+            failedRecovery.retryCount,
+
+          maxRetries:
+            failedRecovery.maxRetries,
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | NORMAL PAYMENT FAILURE
+      |--------------------------------------------------------------------------
+      */
+
+      const existingPayment =
+        await prisma.payment.findFirst({
+          where: {
+            razorpayOrderId:
+              payment.order_id,
+          },
+        });
+
+      if (!existingPayment) {
+        console.warn(
+          "⚠️ Payment record not found:",
+          payment.order_id,
+        );
+
+        return res.status(200).json({
+          success: true,
+          received: true,
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | DUPLICATE FAILURE PROTECTION
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        existingPayment.status ===
+          "FAILED" &&
+        existingPayment.razorpayPaymentId ===
+          payment.id
+      ) {
+        console.log(
+          `ℹ️ Duplicate failure webhook ignored: ${payment.id}`,
+        );
+
+        return res.status(200).json({
+          success: true,
+          received: true,
+          duplicate: true,
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | FAILURE REASON
+      |--------------------------------------------------------------------------
+      */
+
+      const failureReason =
+        payment.error_description ??
+        payment.error_reason ??
+        "Payment failed";
+
+      const classifiedRootCause =
+        classifyFailureReason(
+          failureReason,
+        );
+
+      console.log(
+        `❌ Payment failed: ${payment.id}`,
+      );
+
+      console.log(
+        `Reason: ${failureReason}`,
+      );
+
+      console.log(
+        `🧠 Classified root cause: ${classifiedRootCause}`,
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE PAYMENT
+      |--------------------------------------------------------------------------
+      */
+
+      const failedPayment =
+        await prisma.payment.update({
+          where: {
+            id: existingPayment.id,
+          },
+
+          data: {
+            razorpayPaymentId:
+              payment.id,
+
+            status: "FAILED",
+
+            method:
+              payment.method ?? null,
+
+            failureReason,
+          },
+        });
+
+      /*
+      |--------------------------------------------------------------------------
+      | AUDIT PAYMENT FAILURE
+      |--------------------------------------------------------------------------
+      */
+
+      await prisma.auditLog.create({
+        data: {
+          eventType:
+            "PAYMENT_FAILED",
+
+          message:
+            `Razorpay payment ${payment.id} failed: ${failureReason}`,
+
+          actor: "RAZORPAY",
+
+          merchantId:
+            existingPayment.merchantId,
+
+          metadata: {
+            razorpayPaymentId:
+              payment.id,
+
+            razorpayOrderId:
+              payment.order_id,
+
+            amount:
+              Number(payment.amount),
+
+            failureReason,
+
+            classifiedRootCause,
+          },
+        },
+      });
+
+      /*
+      |--------------------------------------------------------------------------
+      | MERCHANT-WIDE FAILURE ANALYSIS
+      |--------------------------------------------------------------------------
+      */
+
+      const merchantId =
+        existingPayment.merchantId;
+
+      const failedPayments =
+        await prisma.payment.findMany({
+          where: {
+            merchantId,
+
+            status: "FAILED",
+          },
+
+          orderBy: {
+            createdAt: "desc",
+          },
+        });
+
+      const totalPayments =
+        await prisma.payment.count({
+          where: {
+            merchantId,
+          },
+        });
+
+      const failureRate =
+        totalPayments > 0
+          ? (failedPayments.length /
+              totalPayments) *
+            100
+          : 0;
+
+      /*
+      |--------------------------------------------------------------------------
+      | REVENUE AT RISK
+      |--------------------------------------------------------------------------
+      |
+      | Database stores money in paise.
+      |
+      */
+
+      const revenueAtRisk =
+        failedPayments.reduce(
+          (total, item) =>
+            total + Number(item.amount),
+          0,
+        );
+
+      console.log(
+        `📊 Merchant failure rate: ${failureRate.toFixed(2)}%`,
+      );
+
+      console.log(
+        `💳 Current failed payment: ₹${(
+          Number(failedPayment.amount) /
+          100
+        ).toFixed(2)}`,
+      );
+
+      console.log(
+        `💰 Total revenue at risk: ₹${(
+          revenueAtRisk / 100
+        ).toFixed(2)}`,
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | INCIDENT THRESHOLD
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        failureRate <
+        FAILURE_THRESHOLD
+      ) {
+        console.log(
+          "ℹ️ Failure threshold not reached",
+        );
+
+        return res.status(200).json({
+          success: true,
           received: true,
 
-          paymentStatus:
-            "FAILED",
+          paymentStatus: "FAILED",
 
-          incidentCreated:
-            isNewIncident,
-
-          incident,
-
-          decision,
-
-          recoveryAction,
+          incidentCreated: false,
 
           analysis: {
             totalPayments,
@@ -1055,11 +1079,13 @@ router.post(
               failedPayments.length,
 
             failureRate: Number(
-              failureRate.toFixed(2)
+              failureRate.toFixed(2),
             ),
 
             currentPaymentAmount:
-              failedPayment.amount,
+              Number(
+                failedPayment.amount,
+              ),
 
             revenueAtRisk,
 
@@ -1071,7 +1097,312 @@ router.post(
 
       /*
       |--------------------------------------------------------------------------
-      | OTHER EVENTS
+      | DETERMINE SEVERITY
+      |--------------------------------------------------------------------------
+      */
+
+      const severity =
+        determineSeverity(
+          failureRate,
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIND ACTIVE INCIDENT
+      |--------------------------------------------------------------------------
+      */
+
+      let incident =
+        await prisma.incident.findFirst({
+          where: {
+            merchantId,
+
+            type:
+              "PAYMENT_FAILURE_SPIKE",
+
+            status: {
+              in: [
+                "OPEN",
+                "INVESTIGATING",
+                "ACTION_REQUIRED",
+              ],
+            },
+          },
+
+          orderBy: {
+            createdAt: "desc",
+          },
+        });
+
+      let isNewIncident = false;
+
+      /*
+      |--------------------------------------------------------------------------
+      | CREATE INCIDENT
+      |--------------------------------------------------------------------------
+      */
+
+      if (!incident) {
+        incident =
+          await prisma.incident.create({
+            data: {
+              title:
+                "Payment Failure Spike Detected",
+
+              description:
+                `${failedPayments.length} payment failures detected with a ${failureRate.toFixed(
+                  2,
+                )}% failure rate.`,
+
+              type:
+                "PAYMENT_FAILURE_SPIKE",
+
+              severity,
+
+              revenueAtRisk,
+
+              confidence: 0.92,
+
+              rootCause:
+                classifiedRootCause,
+
+              merchantId,
+            },
+          });
+
+        isNewIncident = true;
+
+        console.log(
+          `🚨 Incident created: ${incident.id}`,
+        );
+      } else {
+        /*
+        |--------------------------------------------------------------------------
+        | UPDATE ACTIVE INCIDENT
+        |--------------------------------------------------------------------------
+        */
+
+        incident =
+          await prisma.incident.update({
+            where: {
+              id: incident.id,
+            },
+
+            data: {
+              revenueAtRisk,
+
+              confidence: 0.92,
+
+              rootCause:
+                classifiedRootCause,
+
+              severity,
+
+              description:
+                `${failedPayments.length} payment failures detected with a ${failureRate.toFixed(
+                  2,
+                )}% failure rate.`,
+            },
+          });
+
+        console.log(
+          `🔄 Incident updated: ${incident.id}`,
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | AI DECISION ENGINE
+      |--------------------------------------------------------------------------
+      */
+
+      const decision =
+        decideRecoveryAction({
+          type:
+            incident.type,
+
+          severity:
+            incident.severity,
+
+          confidence:
+            incident.confidence ?? 0,
+
+          revenueAtRisk:
+            incident.revenueAtRisk ?? 0,
+
+          rootCause:
+            incident.rootCause ??
+            "UNKNOWN",
+        });
+
+      console.log(
+        `🤖 AI decision: ${decision.action}`,
+      );
+
+      console.log(
+        `Reason: ${decision.reason}`,
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | MAP AI ACTION
+      |--------------------------------------------------------------------------
+      */
+
+      const mappedAction =
+        recoveryActionTypeMap[
+          decision.action
+        ];
+
+      const requiresApproval =
+        decision.boundaries
+          .requiresHumanApproval;
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIND RECOVERY ACTION FOR THIS PAYMENT
+      |--------------------------------------------------------------------------
+      |
+      | One failed payment should have one recovery action.
+      |
+      */
+
+      let recoveryAction =
+        await prisma.recoveryAction.findFirst({
+          where: {
+            incidentId:
+              incident.id,
+
+            paymentId:
+              failedPayment.id,
+          },
+
+          orderBy: {
+            createdAt: "desc",
+          },
+        });
+
+      /*
+      |--------------------------------------------------------------------------
+      | CREATE RECOVERY ACTION
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        !recoveryAction &&
+        mappedAction
+      ) {
+        recoveryAction =
+          await prisma.recoveryAction.create({
+            data: {
+              type:
+                mappedAction,
+
+              status:
+                "PENDING",
+
+              reason:
+                decision.reason,
+
+              expectedRecovery:
+                requiresApproval
+                  ? 0
+                  : Number(
+                      failedPayment.amount,
+                    ),
+
+              actualRecovery: 0,
+
+              retryCount: 0,
+
+              maxRetries:
+                decision.boundaries
+                  .maxRetries,
+
+              incidentId:
+                incident.id,
+
+              paymentId:
+                failedPayment.id,
+            },
+          });
+
+        console.log(
+          `🔄 Recovery action created: ${recoveryAction.id}`,
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | AUDIT INCIDENT DETECTION
+      |--------------------------------------------------------------------------
+      */
+
+      await prisma.auditLog.create({
+        data: {
+          eventType: isNewIncident
+            ? "INCIDENT_DETECTED"
+            : "INCIDENT_UPDATED",
+
+          message:
+            `Payment failure intelligence processed. AI decision: ${decision.action}`,
+
+          actor: "SYSTEM",
+
+          merchantId,
+
+          incidentId:
+            incident.id,
+
+          metadata: {
+            razorpayPaymentId:
+              payment.id,
+
+            currentPaymentAmount:
+              Number(
+                failedPayment.amount,
+              ),
+
+            failureRate,
+
+            failedPayments:
+              failedPayments.length,
+
+            revenueAtRisk,
+
+            rootCause:
+              classifiedRootCause,
+
+            aiDecision: {
+              action:
+                decision.action,
+
+              mappedDatabaseAction:
+                mappedAction ??
+                "NO_ACTION",
+
+              reason:
+                decision.reason,
+
+              requiresHumanApproval:
+                decision.boundaries
+                  .requiresHumanApproval,
+
+              maxRetries:
+                decision.boundaries
+                  .maxRetries,
+
+              dailyActionLimit:
+                decision.boundaries
+                  .dailyActionLimit,
+            },
+          },
+        },
+      });
+
+      /*
+      |--------------------------------------------------------------------------
+      | RESPONSE
       |--------------------------------------------------------------------------
       */
 
@@ -1080,22 +1411,69 @@ router.post(
 
         received: true,
 
-        message:
-          `Event ${event.event} received`,
-      });
-    } catch (error) {
-      console.error(
-        "❌ Razorpay webhook error:",
-        error
-      );
+        paymentStatus: "FAILED",
 
-      return res.status(500).json({
-        success: false,
-        message:
-          "Webhook processing failed",
+        incidentCreated:
+          isNewIncident,
+
+        incident,
+
+        decision,
+
+        recoveryAction,
+
+        analysis: {
+          totalPayments,
+
+          failedPayments:
+            failedPayments.length,
+
+          failureRate: Number(
+            failureRate.toFixed(2),
+          ),
+
+          currentPaymentAmount:
+            Number(
+              failedPayment.amount,
+            ),
+
+          revenueAtRisk,
+
+          rootCause:
+            classifiedRootCause,
+        },
       });
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | OTHER RAZORPAY EVENTS
+    |--------------------------------------------------------------------------
+    */
+
+    return res.status(200).json({
+      success: true,
+
+      received: true,
+
+      message:
+        `Event ${event.event} received`,
+    });
+  } catch (error) {
+    console.error(
+      "❌ Razorpay webhook error:",
+      error,
+    );
+
+    return res.status(500).json({
+      success: false,
+
+      message:
+        error instanceof Error
+          ? error.message
+          : "Webhook processing failed",
+    });
   }
-);
+});
 
 export default router;
