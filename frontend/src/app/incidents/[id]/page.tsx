@@ -212,127 +212,153 @@ export default function IncidentDetailPage({
     }
   }, [incidentId]);
 
-  async function startRecovery(
-    action: RecoveryAction
-  ) {
-    try {
-      setRecoveryLoading(true);
-      setMessage("");
-      setError("");
+  async function startRecovery(action: RecoveryAction) {
+  try {
+    setRecoveryLoading(true);
+    setMessage("");
+    setError("");
 
-      /*
-       * Create a NEW Razorpay order
-       * for this recovery attempt.
-       */
+    const response = await fetch(
+      `${API_URL}/api/recovery/${action.id}/create-order`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-      const response = await fetch(
-        `${API_URL}/api/recovery/${action.id}/create-order`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
+    const result = await response.json();
+
+    console.log("Recovery order response:", result);
+
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.message || "Failed to create recovery order"
       );
+    }
 
-      const result = await response.json();
+    if (!result.keyId) {
+      throw new Error(
+        "Razorpay key ID is missing from the server."
+      );
+    }
 
-      if (!response.ok || !result.success) {
-        throw new Error(
-          result.message ||
-            "Failed to create recovery order"
+    if (!result.order?.id) {
+      throw new Error(
+        "Razorpay order was not created."
+      );
+    }
+
+    if (!window.Razorpay) {
+      throw new Error(
+        "Razorpay Checkout has not loaded yet. Please refresh the page and try again."
+      );
+    }
+
+    console.log(
+      "Opening Razorpay recovery checkout:",
+      result.order.id
+    );
+
+    const razorpay = new window.Razorpay({
+      key: result.keyId,
+
+      amount: Number(result.order.amount),
+
+      currency: result.order.currency || "INR",
+
+      name: "RevenueAI",
+
+      description: "Payment Recovery",
+
+      order_id: result.order.id,
+
+      prefill: {
+        email: "customer@example.com",
+      },
+
+      notes: {
+        recoveryActionId: action.id,
+      },
+
+      theme: {
+        color: "#4f46e5",
+      },
+
+      handler: function (paymentResponse: any) {
+        console.log(
+          "Recovery payment successful:",
+          paymentResponse
         );
-      }
 
-      if (!window.Razorpay) {
-        throw new Error(
-          "Razorpay Checkout is still loading. Please try again."
+        setRecoveryLoading(false);
+
+        setMessage(
+          "Recovery payment successful. Waiting for Razorpay webhook confirmation..."
         );
-      }
 
-      const order = result.order;
+        setTimeout(() => {
+          if (incidentId) {
+            loadIncident(incidentId);
+          }
+        }, 2000);
+      },
 
-      /*
-       * Open real Razorpay Test Mode Checkout.
-       */
-
-      const razorpay = new window.Razorpay({
-        key: result.keyId,
-
-        amount: order.amount,
-
-        currency: order.currency,
-
-        name: "RevenueAI",
-
-        description:
-          "RevenueAI Recovery Payment",
-
-        order_id: order.id,
-
-        prefill: {
-          email:
-            action.paymentId
-              ? undefined
-              : undefined,
-        },
-
-        theme: {
-          color: "#4f46e5",
-        },
-
-        handler: async function () {
-          setMessage(
-            "Recovery payment submitted. Waiting for Razorpay confirmation..."
-          );
-
-          /*
-           * The webhook is responsible for
-           * marking the recovery SUCCESS.
-           */
-
-          setTimeout(() => {
-            if (incidentId) {
-              loadIncident(incidentId);
-            }
-          }, 2500);
-        },
-
-        modal: {
-          ondismiss: function () {
-            setRecoveryLoading(false);
-          },
-        },
-      });
-
-      razorpay.on(
-        "payment.failed",
-        function (response: any) {
-          console.error(
-            "Recovery payment failed:",
-            response
-          );
-
-          setError(
-            response.error?.description ||
-              "Recovery payment failed"
+      modal: {
+        ondismiss: function () {
+          console.log(
+            "Recovery checkout dismissed"
           );
 
           setRecoveryLoading(false);
-        }
-      );
 
-      razorpay.open();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to start recovery"
-      );
+          setMessage(
+            "Recovery checkout was closed."
+          );
+        },
+      },
+    });
 
-      setRecoveryLoading(false);
-    }
+    razorpay.on(
+      "payment.failed",
+      function (response: any) {
+        console.error(
+          "Recovery payment failed:",
+          response
+        );
+
+        setRecoveryLoading(false);
+
+        setError(
+          response?.error?.description ||
+            "Recovery payment failed."
+        );
+      }
+    );
+
+    razorpay.open();
+
+    /*
+     * The modal has now been handed over to Razorpay.
+     * Don't keep the button spinning forever.
+     */
+    setRecoveryLoading(false);
+  } catch (err) {
+    console.error(
+      "Start recovery error:",
+      err
+    );
+
+    setRecoveryLoading(false);
+
+    setError(
+      err instanceof Error
+        ? err.message
+        : "Failed to start recovery."
+    );
   }
+}
 
   if (loading) {
     return (
@@ -396,10 +422,18 @@ export default function IncidentDetailPage({
 
   return (
     <>
-      <Script
-        src="https://checkout.razorpay.com/v1/checkout.js"
-        strategy="afterInteractive"
-      />
+     <Script
+  src="https://checkout.razorpay.com/v1/checkout.js"
+  strategy="afterInteractive"
+  onLoad={() => {
+    console.log("✅ Razorpay Checkout loaded");
+  }}
+  onError={() => {
+    console.error(
+      "❌ Failed to load Razorpay Checkout"
+    );
+  }}
+/>
 
       <main className="min-h-screen bg-[#f8fafc] text-slate-900">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -678,37 +712,87 @@ export default function IncidentDetailPage({
                   </div>
 
                   {actionableRecovery ? (
-                    <div className="mt-5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClasses(
-                            actionableRecovery.status
-                          )}`}
-                        >
-                          {
-                            actionableRecovery.status
-                          }
-                        </span>
+  <div className="mt-5">
+    <div className="flex flex-wrap items-center gap-2">
+      <span
+        className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClasses(
+          actionableRecovery.status
+        )}`}
+      >
+        {actionableRecovery.status}
+      </span>
 
-                        <span className="text-sm text-slate-500">
-                          {
-                            actionableRecovery.type
-                          }
-                        </span>
-                      </div>
+      <span className="text-sm font-medium text-slate-600">
+        {actionableRecovery.type.replaceAll("_", " ")}
+      </span>
+    </div>
 
-                      <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                        {
-                          actionableRecovery.reason ??
-                          "AI recommended a controlled recovery attempt."
-                        }
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="mt-5 text-sm text-slate-500">
-                      No pending recovery action requires execution.
-                    </p>
-                  )}
+    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Recovery Reason
+      </p>
+
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+        {actionableRecovery.reason ??
+          "AI recommended a controlled recovery attempt."}
+      </p>
+    </div>
+
+    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-xs text-slate-500">
+          Expected Recovery
+        </p>
+
+        <p className="mt-1 font-semibold text-slate-900">
+          {formatCurrency(
+            actionableRecovery.expectedRecovery
+          )}
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-xs text-slate-500">
+          Recovery Attempts
+        </p>
+
+        <p className="mt-1 font-semibold text-slate-900">
+          {actionableRecovery.retryCount} /{" "}
+          {actionableRecovery.maxRetries}
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-xs text-slate-500">
+          Recovery Order
+        </p>
+
+        <p className="mt-1 truncate font-mono text-xs font-medium text-slate-700">
+          {actionableRecovery.razorpayReference ??
+            "Not created"}
+        </p>
+      </div>
+    </div>
+  </div>
+) : (
+  <div className="mt-5 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+    <CheckCircle2
+      size={22}
+      className="shrink-0 text-emerald-600"
+    />
+
+    <div>
+      <p className="font-semibold text-emerald-800">
+        Recovery completed successfully
+      </p>
+
+      <p className="mt-1 text-sm text-emerald-700">
+        All recovery actions for this incident
+        have been processed.
+      </p>
+    </div>
+  </div>
+)}
                 </div>
 
                 {actionableRecovery && (

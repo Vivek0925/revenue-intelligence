@@ -21,8 +21,6 @@ export default async function DashboardPage() {
       <div className="absolute left-0 top-0 -z-10 h-[350px] w-full bg-gradient-to-b from-indigo-50 via-purple-50/20 to-transparent" />
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-
-        {/* Header */}
         <DashboardHeader />
 
         {/* Overview */}
@@ -40,13 +38,17 @@ export default async function DashboardPage() {
         <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             title="Revenue At Risk"
-            value={formatCurrency(data.incident.revenueAtRisk)}
+            value={formatCurrency(
+              data.incident.revenueAtRisk / 100,
+            )}
             subtitle="Failed payment value"
           />
 
           <MetricCard
             title="Recovered Revenue"
-            value={formatCurrency(data.summary.totalActualRecovery)}
+            value={formatCurrency(
+              data.summary.totalActualRecovery / 100,
+            )}
             subtitle="Successfully recovered"
           />
 
@@ -67,14 +69,17 @@ export default async function DashboardPage() {
         <section className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
           <IncidentCard incident={data.incident} />
 
-          <RecoveryOverview summary={data.summary} />
+          <RecoveryOverview
+            summary={data.summary}
+          />
         </section>
 
         {/* Recovery Actions */}
         <section className="mt-6 pb-10">
-          <ChildActionsTable actions={data.childActions} />
+          <ChildActionsTable
+            actions={data.childActions}
+          />
         </section>
-
       </div>
     </main>
   );

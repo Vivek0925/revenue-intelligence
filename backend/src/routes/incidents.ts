@@ -3,6 +3,130 @@ import prisma from "../lib/prisma";
 
 const router = Router();
 
+function calculateRecoverySummary(actions: any[]) {
+  const successfulActions = actions.filter(
+    (action) => action.status === "SUCCESS",
+  );
+
+  const failedActions = actions.filter(
+    (action) => action.status === "FAILED",
+  );
+
+  const pendingActions = actions.filter((action) =>
+    ["PENDING", "APPROVED", "EXECUTING"].includes(action.status),
+  );
+
+  const totalExpectedRecovery = actions.reduce(
+    (sum, action) => sum + (action.expectedRecovery ?? 0),
+    0,
+  );
+
+  const totalActualRecovery = successfulActions.reduce(
+    (sum, action) => sum + (action.actualRecovery ?? 0),
+    0,
+  );
+
+  const recoveryRate =
+    totalExpectedRecovery > 0
+      ? Number(
+          (
+            (totalActualRecovery / totalExpectedRecovery) *
+            100
+          ).toFixed(2),
+        )
+      : 0;
+
+  return {
+    totalChildActions: actions.length,
+    successfulActions: successfulActions.length,
+    failedActions: failedActions.length,
+    pendingActions: pendingActions.length,
+    totalExpectedRecovery,
+    totalActualRecovery,
+    recoveryRate,
+  };
+}
+
+/**
+ * Build the complete list of recovery attempts.
+ *
+ * We support both:
+ *
+ * 1. Parent -> child recovery actions
+ * 2. Direct recovery actions created by the webhook
+ *
+ * Important:
+ * Direct actions must NOT be discarded just because
+ * orchestrated child actions already exist.
+ */
+function getRecoveryActions(recoveryActions: any[]) {
+  const orchestratedChildActions = recoveryActions.flatMap(
+    (action) => action.childActions ?? [],
+  );
+
+  const directRecoveryActions = recoveryActions.filter(
+    (action) =>
+      action.parentActionId === null &&
+      action.paymentId !== null,
+  );
+
+  return [
+    ...orchestratedChildActions,
+    ...directRecoveryActions,
+  ];
+}
+
+/**
+ * Get the main AI decision action.
+ *
+ * Prefer the actual parent action created by the
+ * orchestration system.
+ */
+function getPrimaryAction(recoveryActions: any[]) {
+  return (
+    recoveryActions.find(
+      (action) =>
+        action.parentActionId === null &&
+        action.paymentId === null,
+    ) ?? null
+  );
+}
+
+/**
+ * Get current recovery status from all recovery attempts.
+ */
+function getRecoveryStatus(actions: any[]) {
+  if (actions.length === 0) {
+    return "NO_ACTION";
+  }
+
+  if (actions.some((action) => action.status === "EXECUTING")) {
+    return "EXECUTING";
+  }
+
+  if (actions.some((action) => action.status === "PENDING")) {
+    return "PENDING";
+  }
+
+  if (actions.some((action) => action.status === "APPROVED")) {
+    return "APPROVED";
+  }
+
+  if (actions.some((action) => action.status === "SUCCESS")) {
+    return "SUCCESS";
+  }
+
+  if (actions.every((action) => action.status === "FAILED")) {
+    return "FAILED";
+  }
+
+  return "NO_ACTION";
+}
+
+/* =========================================================
+   GET /api/incidents
+========================================================= */
+
 router.get("/", async (_req, res) => {
   try {
     const incidents = await prisma.incident.findMany({
@@ -12,7 +136,11 @@ router.get("/", async (_req, res) => {
       include: {
         recoveryActions: {
           include: {
-            childActions: true,
+            childActions: {
+              orderBy: {
+                createdAt: "asc",
+              },
+            },
           },
           orderBy: {
             createdAt: "asc",
@@ -22,44 +150,13 @@ router.get("/", async (_req, res) => {
     });
 
     const formattedIncidents = incidents.map((incident) => {
-      const parentAction =
-        incident.recoveryActions.find(
-          (action) => action.parentActionId === null,
-        ) ?? null;
-
-      const childActions = parentAction?.childActions ?? [];
-
-      const successfulActions = childActions.filter(
-        (action) => action.status === "SUCCESS",
+      const recoveryActions = getRecoveryActions(
+        incident.recoveryActions,
       );
 
-      const failedActions = childActions.filter(
-        (action) => action.status === "FAILED",
+      const summary = calculateRecoverySummary(
+        recoveryActions,
       );
-
-      const pendingActions = childActions.filter((action) =>
-        ["PENDING", "APPROVED", "EXECUTING"].includes(action.status),
-      );
-
-      const totalExpectedRecovery = childActions.reduce(
-        (sum, action) => sum + (action.expectedRecovery ?? 0),
-        0,
-      );
-
-      const totalActualRecovery = childActions.reduce(
-        (sum, action) => sum + (action.actualRecovery ?? 0),
-        0,
-      );
-
-      const recoveryRate =
-        totalExpectedRecovery > 0
-          ? Number(
-              (
-                (totalActualRecovery / totalExpectedRecovery) *
-                100
-              ).toFixed(2),
-            )
-          : 0;
 
       return {
         id: incident.id,
@@ -74,17 +171,11 @@ router.get("/", async (_req, res) => {
         createdAt: incident.createdAt,
         updatedAt: incident.updatedAt,
 
-        recoveryStatus: parentAction?.status ?? "NO_ACTION",
+        recoveryStatus: getRecoveryStatus(
+          recoveryActions,
+        ),
 
-        summary: {
-          totalChildActions: childActions.length,
-          successfulActions: successfulActions.length,
-          failedActions: failedActions.length,
-          pendingActions: pendingActions.length,
-          totalExpectedRecovery,
-          totalActualRecovery,
-          recoveryRate,
-        },
+        summary,
       };
     });
 
@@ -103,16 +194,26 @@ router.get("/", async (_req, res) => {
   }
 });
 
+/* =========================================================
+   GET /api/incidents/:id
+========================================================= */
+
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
     const incident = await prisma.incident.findUnique({
-      where: { id },
+      where: {
+        id,
+      },
       include: {
         recoveryActions: {
           include: {
-            childActions: true,
+            childActions: {
+              orderBy: {
+                createdAt: "asc",
+              },
+            },
           },
           orderBy: {
             createdAt: "asc",
@@ -128,44 +229,29 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    const parentAction =
-      incident.recoveryActions.find(
-        (action) => action.parentActionId === null
-      ) ?? null;
-
-    const childActions = parentAction?.childActions ?? [];
-
-    const successfulActions = childActions.filter(
-      (action) => action.status === "SUCCESS"
+    /*
+     * ALL recovery attempts.
+     *
+     * This includes:
+     *
+     * - 8 old child actions
+     * - new direct ₹5,250 recovery action
+     */
+    const recoveryActions = getRecoveryActions(
+      incident.recoveryActions,
     );
 
-    const failedActions = childActions.filter(
-      (action) => action.status === "FAILED"
+    const primaryAction = getPrimaryAction(
+      incident.recoveryActions,
     );
 
-    const pendingActions = childActions.filter((action) =>
-      ["PENDING", "APPROVED", "EXECUTING"].includes(action.status)
+    const summary = calculateRecoverySummary(
+      recoveryActions,
     );
 
-    const totalExpectedRecovery = childActions.reduce(
-      (sum, action) => sum + (action.expectedRecovery ?? 0),
-      0
+    const recoveryStatus = getRecoveryStatus(
+      recoveryActions,
     );
-
-    const totalActualRecovery = childActions.reduce(
-      (sum, action) => sum + (action.actualRecovery ?? 0),
-      0
-    );
-
-    const recoveryRate =
-      totalExpectedRecovery > 0
-        ? Number(
-            (
-              (totalActualRecovery / totalExpectedRecovery) *
-              100
-            ).toFixed(2)
-          )
-        : 0;
 
     return res.status(200).json({
       success: true,
@@ -185,30 +271,38 @@ router.get("/:id", async (req, res) => {
         updatedAt: incident.updatedAt,
       },
 
-      parentAction,
+      /*
+       * Parent AI decision.
+       */
+      parentAction: primaryAction,
 
-      childActions,
+      /*
+       * Complete list of actual recovery attempts.
+       */
+      childActions: recoveryActions,
 
-      summary: {
-        totalChildActions: childActions.length,
-        successfulActions: successfulActions.length,
-        failedActions: failedActions.length,
-        pendingActions: pendingActions.length,
-        totalExpectedRecovery,
-        totalActualRecovery,
-        recoveryRate,
-      },
+      /*
+       * Raw database actions, useful for debugging
+       * and future UI features.
+       */
+      recoveryActions: incident.recoveryActions,
 
-      decision: parentAction
+      summary,
+
+      recoveryStatus,
+
+      decision: primaryAction
         ? {
-            action: parentAction.type,
+            action: primaryAction.type,
+
             reason:
-              parentAction.reason ??
+              primaryAction.reason ??
               "Recovery action selected by the decision engine.",
+
             boundaries: {
-              maxRetries: parentAction.maxRetries,
+              maxRetries: primaryAction.maxRetries,
               requiresHumanApproval:
-                parentAction.type === "REQUEST_APPROVAL",
+                primaryAction.type === "REQUEST_APPROVAL",
               dailyActionLimit: 100,
             },
           }
