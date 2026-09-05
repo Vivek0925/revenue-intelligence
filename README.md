@@ -66,7 +66,7 @@ Recovery Verified
        ↓
 Incident Resolved
 
-🏗️ Architecture
+# 🏗️ Architecture
 
                          ┌──────────────┐
                          │   CUSTOMER   │
@@ -131,7 +131,7 @@ Revenue At Risk
 
 Related failures are grouped into incidents so merchants can understand the bigger problem rather than individual transactions.
 
-🤖 AI Decision Engine
+#🤖 AI Decision Engine
 
 The decision engine evaluates:
 
@@ -153,7 +153,7 @@ High-risk incidents can require human approval instead of automatic recovery.
 
 Recovery actions also have safety boundaries such as maximum retries and action limits.
 
-🔗 Customer Recovery
+#🔗 Customer Recovery
 
 When recovery is appropriate, the merchant generates a customer-facing recovery link.
 
@@ -175,7 +175,7 @@ Incident = RESOLVED
 
 This creates a complete failure-to-recovery loop.
 
-🗃️ Database
+#🗃️ Database
 
 Core Prisma models:
 
@@ -194,7 +194,7 @@ Merchant
    │      ├── Recovery Actions
    │      └── Audit Logs
    └── Policies
-🛠️ Tech Stack
+#🛠️ Tech Stack
 Layer	Technology
 Frontend	Next.js, React, TypeScript
 Styling	Tailwind CSS
@@ -205,7 +205,8 @@ Payments	Razorpay
 Webhooks	Razorpay Webhooks
 AI	AI Decision Engine
 API	REST
-📁 Project Structure
+
+#📁 Project Structure
 RevenueAI/
 │
 ├── frontend/
@@ -229,7 +230,8 @@ RevenueAI/
 │   └── scripts/
 │
 └── README.md
-🚀 Getting Started
+
+#🚀 Getting Started
 Backend
 cd backend
 npm install
@@ -306,7 +308,8 @@ Payments
 Incidents
 Recovery Actions
 Audit Logs
-🔐 Security
+
+#🔐 Security
 
 RevenueAI includes:
 
