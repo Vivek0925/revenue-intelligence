@@ -31,11 +31,22 @@ router.get("/", async (_req, res) => {
     });
 
     if (!incident) {
-      return res.status(404).json({
-        success: false,
-        message: "No incidents found",
-      });
-    }
+  return res.status(200).json({
+    success: true,
+    incident: null,
+    parentAction: null,
+    childActions: [],
+    summary: {
+      totalChildActions: 0,
+      successfulActions: 0,
+      failedActions: 0,
+      pendingActions: 0,
+      totalExpectedRecovery: 0,
+      totalActualRecovery: 0,
+      recoveryRate: 0,
+    },
+  });
+}
 
     // ============================================================
     // 2. FIND PARENT ACTION

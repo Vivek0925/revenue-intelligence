@@ -20,9 +20,7 @@ const recoveryActionTypeMap: Partial<
   Record<AIRecoveryAction, RecoveryActionType>
 > = {
   RETRY_PAYMENT: RecoveryActionType.RETRY_PAYMENT,
-
   WAIT_AND_RETRY: RecoveryActionType.RETRY_PAYMENT,
-
   ESCALATE_TO_HUMAN: RecoveryActionType.REQUEST_APPROVAL,
 };
 
@@ -39,6 +37,9 @@ router.post("/", async (_req, res) => {
     const failedPayments = await prisma.payment.findMany({
       where: {
         status: "FAILED",
+      },
+      orderBy: {
+        createdAt: "desc",
       },
     });
 
@@ -74,7 +75,6 @@ router.post("/", async (_req, res) => {
       return res.status(200).json({
         success: true,
         message: "No payment failures detected",
-
         analysis: {
           totalPayments,
           failedPayments: 0,
@@ -106,7 +106,8 @@ router.post("/", async (_req, res) => {
 
     const failureReasons = failedPayments.reduce(
       (acc: Record<string, number>, payment) => {
-        const reason = payment.failureReason || "UNKNOWN";
+        const reason =
+          payment.failureReason || "UNKNOWN";
 
         acc[reason] = (acc[reason] || 0) + 1;
 
@@ -133,11 +134,12 @@ router.post("/", async (_req, res) => {
         success: true,
         message:
           "Payments analyzed successfully. No major incident detected.",
-
         analysis: {
           totalPayments,
           failedPayments: failedPayments.length,
-          failureRate: Number(failureRate.toFixed(2)),
+          failureRate: Number(
+            failureRate.toFixed(2),
+          ),
           revenueAtRisk,
           dominantFailureReason,
         },
@@ -146,14 +148,24 @@ router.post("/", async (_req, res) => {
 
     // ==========================================
     // 9. DETERMINE INCIDENT SEVERITY
+    //
+    // Failure rate determines whether there is
+    // an incident.
+    //
+    // Failure count determines severity.
+    // This prevents a single failed payment from
+    // becoming a CRITICAL incident.
     // ==========================================
 
-    let severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" =
-      "LOW";
+    let severity:
+      | "LOW"
+      | "MEDIUM"
+      | "HIGH"
+      | "CRITICAL" = "MEDIUM";
 
-    if (failureRate >= 40) {
+    if (failedPayments.length >= 5) {
       severity = "CRITICAL";
-    } else if (failureRate >= 25) {
+    } else if (failedPayments.length >= 3) {
       severity = "HIGH";
     } else {
       severity = "MEDIUM";
@@ -163,28 +175,25 @@ router.post("/", async (_req, res) => {
     // 10. CHECK FOR EXISTING INCIDENT
     // ==========================================
 
-    const existingIncident = await prisma.incident.findFirst({
-      where: {
-        merchantId,
-
-        type: "PAYMENT_FAILURE_SPIKE",
-
-        status: {
-          in: [
-            "OPEN",
-            "INVESTIGATING",
-            "ACTION_REQUIRED",
-          ],
+    const existingIncident =
+      await prisma.incident.findFirst({
+        where: {
+          merchantId,
+          type: "PAYMENT_FAILURE_SPIKE",
+          status: {
+            in: [
+              "OPEN",
+              "INVESTIGATING",
+              "ACTION_REQUIRED",
+            ],
+          },
         },
-      },
-
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
 
     let incident = existingIncident;
-
     let isNewIncident = false;
 
     // ==========================================
@@ -196,9 +205,10 @@ router.post("/", async (_req, res) => {
         data: {
           title: "Payment Failure Spike Detected",
 
-          description: `${failedPayments.length} payment failures detected with a ${failureRate.toFixed(
-            2,
-          )}% failure rate.`,
+          description:
+            `${failedPayments.length} payment failures detected with a ${failureRate.toFixed(
+              2,
+            )}% failure rate.`,
 
           type: "PAYMENT_FAILURE_SPIKE",
 
@@ -215,24 +225,42 @@ router.post("/", async (_req, res) => {
       });
 
       isNewIncident = true;
+    } else {
+      // ==========================================
+      // UPDATE EXISTING INCIDENT
+      // ==========================================
+
+      incident = await prisma.incident.update({
+        where: {
+          id: incident.id,
+        },
+        data: {
+          severity,
+          revenueAtRisk,
+          confidence: 0.92,
+          rootCause: dominantFailureReason,
+
+          description:
+            `${failedPayments.length} payment failures detected with a ${failureRate.toFixed(
+              2,
+            )}% failure rate.`,
+        },
+      });
     }
 
     // ==========================================
     // 12. AI DECISION ENGINE
-    // RUN FOR BOTH NEW AND EXISTING INCIDENTS
     // ==========================================
 
     const decision: RecoveryDecision =
       decideRecoveryAction({
         type: incident.type,
-
         severity: incident.severity,
-
         confidence: incident.confidence ?? 0,
-
-        revenueAtRisk: incident.revenueAtRisk ?? 0,
-
-        rootCause: incident.rootCause ?? "UNKNOWN",
+        revenueAtRisk:
+          incident.revenueAtRisk ?? 0,
+        rootCause:
+          incident.rootCause ?? "UNKNOWN",
       });
 
     // ==========================================
@@ -258,7 +286,6 @@ router.post("/", async (_req, res) => {
         where: {
           incidentId: incident.id,
         },
-
         orderBy: {
           createdAt: "desc",
         },
@@ -282,6 +309,11 @@ router.post("/", async (_req, res) => {
               ? revenueAtRisk
               : 0,
 
+            maxRetries:
+              decision.boundaries.maxRetries > 0
+                ? decision.boundaries.maxRetries
+                : 3,
+
             incidentId: incident.id,
           },
         });
@@ -297,7 +329,8 @@ router.post("/", async (_req, res) => {
         data: {
           eventType: "INCIDENT_DETECTED",
 
-          message: `AI detected a payment failure spike and selected decision: ${decision.action}`,
+          message:
+            `AI detected a payment failure spike and selected decision: ${decision.action}`,
 
           actor: "SYSTEM",
 
@@ -307,11 +340,9 @@ router.post("/", async (_req, res) => {
 
           metadata: {
             failureRate,
-
-            failedPayments: failedPayments.length,
-
+            failedPayments:
+              failedPayments.length,
             revenueAtRisk,
-
             dominantFailureReason,
 
             aiDecision: {
@@ -328,10 +359,12 @@ router.post("/", async (_req, res) => {
                 decision.boundaries.maxRetries,
 
               requiresHumanApproval:
-                decision.boundaries.requiresHumanApproval,
+                decision.boundaries
+                  .requiresHumanApproval,
 
               dailyActionLimit:
-                decision.boundaries.dailyActionLimit,
+                decision.boundaries
+                  .dailyActionLimit,
             },
           },
         },
@@ -345,7 +378,8 @@ router.post("/", async (_req, res) => {
     return res.status(200).json({
       success: true,
 
-      message: "Payment failure incident detected",
+      message:
+        "Payment failure incident detected",
 
       incident,
 
@@ -356,9 +390,12 @@ router.post("/", async (_req, res) => {
       analysis: {
         totalPayments,
 
-        failedPayments: failedPayments.length,
+        failedPayments:
+          failedPayments.length,
 
-        failureRate: Number(failureRate.toFixed(2)),
+        failureRate: Number(
+          failureRate.toFixed(2),
+        ),
 
         revenueAtRisk,
 
@@ -370,7 +407,6 @@ router.post("/", async (_req, res) => {
 
     return res.status(500).json({
       success: false,
-
       message: "Failed to analyze payments",
     });
   }

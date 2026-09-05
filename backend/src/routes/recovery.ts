@@ -18,6 +18,111 @@ const router = Router();
 |
 */
 
+/*
+|--------------------------------------------------------------------------
+| GET RECOVERY PAYMENT DETAILS
+|--------------------------------------------------------------------------
+|
+| Used by the customer-facing recovery page.
+|
+*/
+
+router.get("/:actionId", async (req, res) => {
+  try {
+    const { actionId } = req.params;
+
+    const action =
+      await prisma.recoveryAction.findUnique({
+        where: {
+          id: actionId,
+        },
+        include: {
+          payment: true,
+          incident: true,
+        },
+      });
+
+    if (!action) {
+      return res.status(404).json({
+        success: false,
+        message: "Recovery action not found",
+      });
+    }
+
+    if (!action.payment) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Recovery action is not linked to a payment",
+      });
+    }
+
+    if (
+      action.status === "SUCCESS"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This recovery payment has already been completed",
+      });
+    }
+
+    if (
+      action.status === "ESCALATED"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This recovery attempt is no longer available",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+
+      recovery: {
+        id: action.id,
+
+        amount: action.payment.amount,
+
+        currency:
+          action.payment.currency,
+
+        customerEmail:
+          action.payment.customerEmail,
+
+        reason:
+          action.reason,
+
+        status:
+          action.status,
+
+        retryCount:
+          action.retryCount,
+
+        maxRetries:
+          action.maxRetries,
+
+        incidentId:
+          action.incidentId,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Recovery details error:",
+      error,
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch recovery details",
+    });
+  }
+});
+
 router.post("/:actionId/create-order", async (req, res) => {
   try {
     const { actionId } = req.params;

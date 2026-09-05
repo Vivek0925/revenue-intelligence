@@ -22,7 +22,6 @@ export interface RecoveryAction {
   retryCount: number;
   maxRetries: number;
   paymentId: string | null;
-  razorpayReference?: string | null;
 }
 
 export interface RecoverySummary {
@@ -52,7 +51,5 @@ export async function getDashboardData(): Promise<DashboardData> {
     throw new Error("Failed to fetch dashboard data");
   }
 
-  const data = await response.json();
-
-  return data;
+  return response.json();
 }

@@ -69,12 +69,19 @@ function classifyFailureReason(reason: string): string {
 
 function determineSeverity(
   failureRate: number,
+  failedPaymentCount: number,
 ): "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" {
-  if (failureRate >= 40) {
+  if (
+    failedPaymentCount >= 10 &&
+    failureRate >= 40
+  ) {
     return "CRITICAL";
   }
 
-  if (failureRate >= 25) {
+  if (
+    failedPaymentCount >= 4 &&
+    failureRate >= 25
+  ) {
     return "HIGH";
   }
 
@@ -1101,11 +1108,10 @@ router.post("/razorpay", async (req, res) => {
       |--------------------------------------------------------------------------
       */
 
-      const severity =
-        determineSeverity(
-          failureRate,
-        );
-
+    const severity = determineSeverity(
+  failureRate,
+  failedPayments.length,
+);
       /*
       |--------------------------------------------------------------------------
       | FIND ACTIVE INCIDENT
