@@ -1,8 +1,102 @@
 import { Router } from "express";
 import prisma from "../lib/prisma";
 import { createRazorpayOrder } from "../services/razorpay.service";
+import crypto from "crypto";
+import razorpay from "../services/razorpay.service";
 
 const router = Router();
+
+router.post("/verify", async (req, res) => {
+  try {
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    } = req.body;
+
+    if (
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing Razorpay payment details",
+      });
+    }
+
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!secret) {
+      throw new Error("RAZORPAY_KEY_SECRET is not configured");
+    }
+
+    const generatedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(
+        `${razorpay_order_id}|${razorpay_payment_id}`
+      )
+      .digest("hex");
+
+    if (generatedSignature !== razorpay_signature) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Razorpay signature",
+      });
+    }
+
+    const payment = await prisma.payment.findFirst({
+      where: {
+        razorpayOrderId: razorpay_order_id,
+      },
+    });
+
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment record not found",
+      });
+    }
+
+    const razorpayPayment =
+      await razorpay.payments.fetch(
+        razorpay_payment_id
+      );
+
+    const updatedPayment =
+      await prisma.payment.update({
+        where: {
+          id: payment.id,
+        },
+        data: {
+          razorpayPaymentId: razorpay_payment_id,
+          method: razorpayPayment.method ?? null,
+          status:
+            razorpayPayment.status === "captured"
+              ? "CAPTURED"
+              : razorpayPayment.status === "authorized"
+                ? "AUTHORIZED"
+                : "CREATED",
+        },
+      });
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment verified successfully",
+      payment: updatedPayment,
+    });
+  } catch (error) {
+    console.error("Payment verification error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Payment verification failed",
+    });
+  }
+});
 
 router.post("/create-order", async (req, res) => {
   try {
